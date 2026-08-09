@@ -1,0 +1,4 @@
+py-smart-gardena
+pyopenweathermap
+# websockets>=14 removed .closed (breaks py-smart-gardena 1.3.17); we shim it
+websockets>=12

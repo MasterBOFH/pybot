@@ -1,0 +1,14 @@
+# pybot IRC test harness — Undernet ircu2
+#
+#   docker compose -f docker/docker-compose.yml up -d --build
+#   docker compose -f docker/docker-compose.yml down
+
+services:
+  ircu2:
+    build:
+      context: ./ircu2
+    image: pybot-ircu2:local
+    container_name: pybot-ircu2
+    ports:
+      - "6667:6667"
+    restart: unless-stopped

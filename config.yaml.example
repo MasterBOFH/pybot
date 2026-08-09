@@ -1,0 +1,81 @@
+irc:
+  host: irc.example.net
+  port: 6697
+  tls: true
+  tls_verify: true
+  # bindhost: "192.168.1.100"  # optional local address for outbound IRC
+  nick: pybot
+  altnick: pybot_          # tried if primary nick is taken
+  username: pybot
+  realname: pybot
+  # password: server-password  # optional PASS before registration
+  sasl:
+    enabled: true
+    mechanism: auto   # auto | PLAIN | SCRAM-SHA-256
+    username: pybot
+    password: secret
+  channels:
+    - "#dev"
+  who_poll_seconds: 60
+  ison_poll_seconds: 30    # reclaim primary/alt nick when on a fallback
+  reconnect:
+    enabled: true
+    initial_delay: 10      # first retry after 10s
+    step: 10               # then 20, 30, … up to max
+    max_delay: 60          # then every 60s
+  flood:
+    burst: 5
+    rate: 1.0         # tokens per second
+  admin:
+    # hostmasks (nick!user@host); * and ? wildcards allowed
+    hosts:
+      - "*!you@*.example.net"
+    accounts:
+      - youraccount          # services account (account-tag / WHOX / SASL)
+    prefix: "~"
+
+http:
+  host: 0.0.0.0
+  port: 8080
+
+logging:
+  level: INFO
+  raw_enabled: true
+  raw_level: DEBUG
+  color: true
+
+modules:
+  github_webhook:
+    enabled: true
+    path: /github
+    secret: whsec_change_me
+    channel: "#dev"
+    emojis: true              # set false if your clients hate unicode
+    events:
+      - push                 # commits + tag pushes (formatted separately)
+      - release              # GitHub Release published (enable in webhook too)
+      - issues
+      - pull_request
+
+  gardena:
+    enabled: false
+    client_id: ""             # Husqvarna/Gardena application key
+    client_secret: ""
+    # Per-channel which event levels to receive (info = activity/alarms,
+    # debug = minor state/activity noise). "all" = both.
+    channels:
+      - name: "#dev"
+        events: [all]
+      # - name: "#lawn"
+      #   events: [info]
+      # - name: "#lawn-debug"
+      #   events: [debug]
+    # channel: "#dev"         # shorthand: one channel, events: [all]
+    # command_prefix: "~"     # defaults to irc.admin.prefix
+    weather:                  # optional; status-line snippets + ~weather
+      enabled: false
+      api_key: ""
+      location: ""            # display name only
+      latitude: 0.0
+      longitude: 0.0
+      update_seconds: 3600
