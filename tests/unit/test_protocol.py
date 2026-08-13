@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+
+import pytest
+
+from pybot.irc.connection import Connection
 from pybot.irc.protocol import format_line, parse_message
 
 
@@ -33,3 +38,25 @@ def test_parse_numeric() -> None:
     assert m.command == "001"
     assert m.params[0] == "pybot"
     assert m.trailing == "Welcome"
+
+
+@pytest.mark.asyncio
+async def test_connection_close_does_not_wait_forever_on_writer_close() -> None:
+    class SlowWriter:
+        def __init__(self) -> None:
+            self.closed = False
+            self.transport = self
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            await asyncio.sleep(60)
+
+    conn = Connection("example.com", 6667)
+    conn._writer = SlowWriter()
+    conn._read_task = asyncio.create_task(asyncio.sleep(0))
+
+    await asyncio.wait_for(conn.close(), timeout=2.5)
+
+    assert conn._writer is None

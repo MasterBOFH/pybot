@@ -122,12 +122,20 @@ class Connection:
                 await self._read_task
             except asyncio.CancelledError:
                 pass
-        if self._writer:
-            self._writer.close()
+        writer = self._writer
+        self._writer = None
+        if writer:
+            writer.close()
             try:
-                await self._writer.wait_closed()
+                await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                try:
+                    transport = getattr(writer, "transport", None)
+                    if transport is not None:
+                        transport.abort()
+                except Exception:
+                    pass
             except Exception:
                 pass
         self._reader = None
-        self._writer = None
         self._read_task = None
