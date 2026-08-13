@@ -96,6 +96,14 @@ class IRCClient:
                 name = entry.strip()
                 if name:
                     out.append((name, None))
+            elif isinstance(entry, tuple) and len(entry) == 2:
+                name, key = entry
+                name = str(name).strip()
+                if not name:
+                    continue
+                if key is not None:
+                    key = str(key) or None
+                out.append((name, key))
             elif isinstance(entry, dict):
                 name = (entry.get("name") or entry.get("channel") or "").strip()
                 if not name:
@@ -105,6 +113,9 @@ class IRCClient:
                     key = str(key) or None
                 out.append((name, key))
         return out
+
+    def set_channels_to_join(self, channels_cfg: list[Any] | None) -> None:
+        self._channels_to_join = self._parse_channel_list(channels_cfg)
 
     @property
     def sasl_enabled(self) -> bool:
@@ -187,10 +198,10 @@ class IRCClient:
         """Join/part so joined channels match the configured list (hot rehash)."""
         if not self.registered or not self.conn.connected:
             return
-        desired = self._parse_channel_list(
-            channels_cfg
+        desired = (
+            self._parse_channel_list(channels_cfg)
             if channels_cfg is not None
-            else (self.config.get("channels") or [])
+            else list(self._channels_to_join)
         )
         self._channels_to_join = desired
         desired_map = {

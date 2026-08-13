@@ -33,6 +33,10 @@ irc:
     accounts:
       - youraccount          # services account (account-tag / WHOX / SASL)
     prefix: "~"
+  # Auto-joined channels for IRC admin commands and general bot presence.
+  # Module channels are joined separately from each enabled module config.
+  channels:
+    - "#dev"
 
 http:
   host: 0.0.0.0

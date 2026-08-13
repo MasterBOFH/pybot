@@ -86,8 +86,9 @@ pip install -r pybot/modules/gardena/requirements.txt
 ```
 
 Configure under `modules.gardena` (credentials, optional nested `weather:`).
-Announcements go to each entry under `channels:`; set `debug: true` on a channel
-to also receive noisy state lines (default `false`).
+Announcements go to each entry under `channels:`; the bot auto-joins those
+channels when the module is enabled. Set `debug: true` on a channel to also
+receive noisy state lines (default `false`).
 
 ### medialink
 
@@ -100,7 +101,8 @@ pip install -r pybot/modules/medialink/requirements.txt
 Configure under `modules.medialink` (API credentials, `token_url`, room `channels`).
 Point LiveKit webhooks at the bot HTTP path (default `POST /livekit/webhook`).
 Room names match IRC channel names for `$join`. Optional per-channel `debug: true`
-for noisy track/debug lines (default `false`).
+for noisy track/debug lines (default `false`). The bot auto-joins enabled module
+channels so room announcements can work immediately.
 
 ## Hot reload
 
@@ -111,7 +113,7 @@ Reconnects are disruptive; the bot keeps the TCP connection, negotiated caps, an
 | Module code + config | Yes — teardown → reload import → setup |
 | Core logic (parsers/handlers) | Yes — sticky connection/state/timers/flood kept |
 | Logger levels / flood rate | Yes — config reload |
-| `irc.channels` | Yes — JOIN/PART to match list (`~reload config` / SIGHUP) |
+| `irc.channels` | Yes — admin channels; JOIN/PART follows core + enabled module lists (`~reload config` / SIGHUP) |
 | HTTP routes | Yes — dynamic mount table |
 | HTTP bind host/port | Restarts HTTP only |
 | IRC host/TLS/SASL/nick/caps/bindhost | No — use `~reconnect` |
@@ -164,4 +166,4 @@ Harness layout:
 
 ## Admin note
 
-Admin commands are only accepted from listed hostmasks (`nick!user@host` with `*`/`?`) or services accounts (when known via SASL/WHOX/caps).
+Admin commands are only accepted from listed hostmasks (`nick!user@host` with `*`/`?`) or services accounts (when known via SASL/WHOX/caps), and only when sent in a core `irc.channels` admin channel.

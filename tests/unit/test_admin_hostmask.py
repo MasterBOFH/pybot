@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock
+
 from pybot.core.bot import Bot
 from pybot.irc.isupport import ISupport
 
@@ -25,3 +29,73 @@ def test_hostmask_match_variants(tmp_path) -> None:
     assert not bot._hostmask_match("*!dan@*.example.net", "Alice", "other", "a.example.net")
     # rfc1459 nick fold in pattern
     assert bot._hostmask_match("al[]ce!*@*", "AL{}CE", "u", "h")
+
+
+def test_configured_join_channels_include_enabled_module_channels(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        """irc:
+  nick: x
+  channels:
+    - '#core'
+modules:
+  github_webhook:
+    enabled: true
+    channel: '#dev'
+  gardena:
+    enabled: true
+    channels:
+      - name: '#ops'
+      - '#alerts'
+      - name: '#core'
+  medialink:
+    enabled: false
+    channels:
+      - '#skip'
+""",
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+
+    assert bot._configured_join_channels() == [
+        ("#core", None),
+        ("#dev", None),
+        ("#ops", None),
+        ("#alerts", None),
+    ]
+    assert bot.irc._channels_to_join == bot._configured_join_channels()  # type: ignore[attr-defined]
+
+
+def test_admin_commands_only_work_in_core_channels(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        """irc:
+  nick: x
+  channels:
+    - '#core'
+  admin:
+    hosts:
+      - '*!admin@host'
+    prefix: '~'
+modules: {}
+""",
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+    bot.irc.privmsg = AsyncMock()  # type: ignore[assignment]
+    bot.reload_modules = AsyncMock()  # type: ignore[assignment]
+
+    allowed = {
+        "nick": "Alice",
+        "user": "admin",
+        "host": "host",
+        "target": "#core",
+        "text": "~reload modules",
+    }
+    blocked = dict(allowed, target="#module")
+
+    asyncio.run(bot._maybe_admin(allowed))
+    asyncio.run(bot._maybe_admin(blocked))
+
+    assert bot.reload_modules.await_count == 1
+    bot.irc.privmsg.assert_awaited_once_with("#core", "reloaded modules")

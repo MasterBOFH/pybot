@@ -40,6 +40,7 @@ class Bot:
             timers=self.timers,
             raw=self.raw,
         )
+        self.irc.set_channels_to_join(self._configured_join_channels())
         self.modules: dict[str, Module] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
         self._stop_event = asyncio.Event()
@@ -53,6 +54,46 @@ class Bot:
 
     def _reconnect_cfg(self) -> dict[str, Any]:
         return (self.config.get("irc") or {}).get("reconnect") or {}
+
+    def _configured_join_channels(self) -> list[tuple[str, str | None]]:
+        """Return core channels plus enabled module announcement/join channels."""
+        seen: set[str] = set()
+        joined: list[tuple[str, str | None]] = []
+
+        def add(entries: list[tuple[str, str | None]]) -> None:
+            for name, key in entries:
+                folded = self.irc.isupport.casefold(name)
+                if folded in seen:
+                    continue
+                seen.add(folded)
+                joined.append((name, key))
+
+        irc_cfg = self.config.get("irc") or {}
+        add(IRCClient._parse_channel_list(irc_cfg.get("channels") or []))
+
+        modules_cfg = self.config.get("modules") or {}
+        for cfg in modules_cfg.values():
+            if not isinstance(cfg, dict) or not cfg.get("enabled", True):
+                continue
+            channels_cfg = cfg.get("channels")
+            if not (isinstance(channels_cfg, list) and channels_cfg):
+                single = cfg.get("channel")
+                channels_cfg = [single] if single else []
+            add(IRCClient._parse_channel_list(channels_cfg))
+
+        return joined
+
+    def _core_admin_channels(self) -> set[str]:
+        irc_cfg = self.config.get("irc") or {}
+        return {
+            self.irc.isupport.casefold(name)
+            for name, _key in IRCClient._parse_channel_list(irc_cfg.get("channels") or [])
+        }
+
+    def _is_core_admin_channel(self, target: str | None) -> bool:
+        if not target:
+            return False
+        return self.irc.isupport.casefold(target) in self._core_admin_channels()
 
     def _reconnect_initial(self) -> float:
         cfg = self._reconnect_cfg()
@@ -192,7 +233,8 @@ class Bot:
             burst=flood.get("burst"),
             rate=flood.get("rate"),
         )
-        await self.irc.sync_channels(irc_cfg.get("channels") or [])
+        self.irc.set_channels_to_join(self._configured_join_channels())
+        await self.irc.sync_channels()
         http_cfg = self.config.get("http") or {}
         need_http_restart = self.http.configure(
             http_cfg.get("host", "0.0.0.0"),
@@ -345,7 +387,8 @@ class Bot:
             return
         if not self._is_admin(payload):
             return
-        # Only respond to messages to us or channels (both ok)
+        if not self._is_core_admin_channel(payload.get("target")):
+            return
         body = text[len(prefix) :].strip()
         parts = body.split()
         if not parts:
