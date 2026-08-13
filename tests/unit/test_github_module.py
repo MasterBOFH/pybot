@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
 
 from pybot.modules.github.module import GitHubModule
+from pybot.modules.github.webhook import make_handler
 
 
 class CapturingLogger:
@@ -41,6 +45,17 @@ def test_repo_channels_mapping_uses_default_when_missing() -> None:
     assert mod._repo_channels_for("org/repo1") == ["#dev", "#ops"]
     assert mod._repo_channels_for("org/repo2") == ["#release"]
     assert mod._repo_channels_for("org/other") == ["#default"]
+
+
+def test_unconfigured_repo_has_no_implicit_default_channels() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "repos": [{"name": "org/repo1", "channels": ["#dev"]}],
+    }
+
+    assert mod._repo_channels_for("org/repo1") == ["#dev"]
+    assert mod._repo_channels_for("org/other") == []
+    assert mod._default_channels == []
 
 
 def test_event_sends_only_to_configured_repo_channels() -> None:
@@ -124,3 +139,50 @@ def test_repo_channels_match_case_insensitively() -> None:
 
     assert mod._repo_channels_for("org/repo1") == ["#dev"]
     assert mod._repo_channels_for("ORG/REPO1") == ["#dev"]
+
+
+def test_fake_webhook_handler_accepts_signed_push_event() -> None:
+    secret = "test-secret"
+    payload = {
+        "ref": "refs/heads/main",
+        "repository": {"full_name": "org/repo1"},
+        "pusher": {"name": "alice"},
+        "commits": [
+            {
+                "id": "abcdef123456",
+                "author": {"name": "alice"},
+                "message": "fix bug",
+            }
+        ],
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+
+    class FakeRequest:
+        def __init__(self, body_bytes: bytes, headers: dict[str, str]) -> None:
+            self._body = body_bytes
+            self.headers = headers
+            self.remote = "127.0.0.1"
+
+        async def read(self) -> bytes:
+            return self._body
+
+    seen: dict[str, object] = {}
+
+    async def on_event(event: str, received: dict[str, object]) -> None:
+        seen["event"] = event
+        seen["repo"] = received.get("repository", {}).get("full_name")
+
+    handler = make_handler(secret=secret, allowed_events={"push"}, on_event=on_event)
+    response = asyncio.run(
+        handler(
+            FakeRequest(
+                body,
+                {"X-Hub-Signature-256": sig, "X-GitHub-Event": "push"},
+            )
+        )
+    )
+
+    assert response.status == 200
+    assert seen["event"] == "push"
+    assert seen["repo"] == "org/repo1"

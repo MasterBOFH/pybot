@@ -19,7 +19,7 @@ class GitHubModule(Module):
         self._path = "/github"
         self._events: set[str] = set()
         self._emojis = True
-        self._default_channels: list[str] = ["#dev"]
+        self._default_channels: list[str] = []
         self._repo_channels: dict[str, list[str]] = {}
 
     def _apply_runtime_config(self) -> None:
@@ -30,8 +30,6 @@ class GitHubModule(Module):
             self._default_channels = [channel_cfg]
         elif isinstance(channel_cfg, list):
             self._default_channels = [str(ch) for ch in channel_cfg if ch]
-        if not self._default_channels:
-            self._default_channels = ["#dev"]
         self._repo_channels = self._parse_repo_channels(cfg)
         self._secret = cfg.get("secret") or ""
         self._path = cfg.get("path") or "/github"
@@ -68,8 +66,6 @@ class GitHubModule(Module):
                 normalized = [str(ch) for ch in channels if ch]
             else:
                 normalized = []
-            if not normalized:
-                normalized = [str(cfg.get("channel") or "#dev")]
             entries[str(name).casefold()] = normalized
         return entries
 
@@ -106,11 +102,14 @@ class GitHubModule(Module):
             on_event=self._on_github_event,
         )
         self.api.mount_route("POST", self._path, handler)
+        repo_map = {
+            repo_name: channels for repo_name, channels in sorted(self._repo_channels.items())
+        }
         self.api.log.info(
-            "GitHub webhook listening on POST %s → default=%s repos=%s events=%s emojis=%s",
+            "GitHub webhook listening on POST %s → default=%s repo_map=%s events=%s emojis=%s",
             self._path,
             self._default_channels,
-            len(self._repo_channels),
+            repo_map,
             sorted(self._events),
             self._emojis,
         )
