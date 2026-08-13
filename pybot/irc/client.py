@@ -39,6 +39,20 @@ def dashed_nick(primary: str, dashes: int, *, nicklen: int) -> str:
     return fit_nick(primary[:keep] + suffix, nicklen)
 
 
+def _oper_from_flags(value: str | None) -> bool:
+    """IRC oper is indicated by '*' in WHO/WHOX flags."""
+    if value is None:
+        return False
+    return "*" in str(value)
+
+
+def _strip_who_hopcount(realname: str) -> str:
+    """Strip leading '<hopcount> ' from WHO 352 trailing realname."""
+    if realname and realname[0].isdigit() and " " in realname:
+        return realname.split(" ", 1)[1]
+    return realname
+
+
 class IRCClient:
     def __init__(
         self,
@@ -790,11 +804,9 @@ class IRCClient:
         channel = msg.params[1]
         user, host, nick = msg.params[2], msg.params[3], msg.params[5]
         flags = msg.params[6]
-        realname = msg.trailing
-        if realname and realname[0].isdigit() and " " in realname:
-            realname = realname.split(" ", 1)[1]
+        realname = _strip_who_hopcount(msg.trailing)
         away = flags.startswith("G")
-        oper = "*" in flags or "o" in flags or "O" in flags
+        oper = _oper_from_flags(flags)
         u = self.state.update_who(
             nick,
             user=user,
@@ -807,8 +819,8 @@ class IRCClient:
         log.debug("State WHO %s", u.debug_str())
 
     async def _handle_who_354(self, msg: Message) -> None:
-        # 354 me <fields matching WHOX_FLAGS order tcuhnaro>
-        # t c u h n a r o → type channel user host nick account realname oper
+        # 354 me <fields matching WHOX_FLAGS order tcuhnaor>
+        # t c u h n a o r → type channel user host nick account flags realname
         params = msg.params[1:]  # skip our nick
         fields = list(WHOX_FLAGS)
         if len(params) < len(fields):
@@ -823,17 +835,17 @@ class IRCClient:
         channel = data.get("c") or None
         if channel == "*":
             channel = None
-        oper_value = data.get("o")
-        oper = False
-        if oper_value is not None:
-            text = str(oper_value).strip()
-            oper = text not in ("", "0", "false", "False", "n", "N", "no", "No")
+
+        # In WHOX, realname is the trailing parameter.
+        realname = msg.trailing
+        oper = _oper_from_flags(data.get("o"))
+
         u = self.state.update_who(
             nick,
             user=data.get("u"),
             host=data.get("h"),
             account=account,
-            realname=data.get("r"),
+            realname=realname,
             channel=channel,
             oper=oper,
         )
