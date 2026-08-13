@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import secrets
 import time
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from typing import Any
 
 from pybot.core.api import BotAPI
@@ -337,6 +337,31 @@ class MedialinkModule(Module):
                 return code
         # Extremely unlikely fallback.
         return secrets.token_urlsafe(8).rstrip("=")
+
+    def _build_join_url(self, token: str) -> str:
+        """Build a safe join URL from token_url config and token.
+
+        Supported formats:
+        - Legacy suffix: https://frontend/?token=
+        - Template: https://frontend/?token={token}
+        """
+        base = self._token_url
+        if "{token}" in base:
+            return base.replace("{token}", quote(token, safe=""))
+
+        parts = urlsplit(base)
+        if parts.scheme and parts.netloc and parts.query:
+            items = parse_qsl(parts.query, keep_blank_values=True)
+            for idx, (key, value) in enumerate(items):
+                if value == "":
+                    items[idx] = (key, token)
+                    new_query = urlencode(items, doseq=True)
+                    return urlunsplit(
+                        (parts.scheme, parts.netloc, parts.path, new_query, parts.fragment)
+                    )
+
+        # Backward-compatible fallback: append encoded token to configured prefix.
+        return f"{base}{quote(token, safe='')}"
 
     async def teardown(self) -> None:
         if self.api:
@@ -708,7 +733,7 @@ class MedialinkModule(Module):
         else:
             self._touch_session(identity, room_name)
 
-        url = f"{self._token_url}{token}"
+        url = self._build_join_url(token)
         url = await self._shorten_join_url(url)
         await self.api.privmsg(nick, f"🎥 LiveKit Room: {room_name}")
         await self.api.privmsg(nick, url)

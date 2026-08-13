@@ -80,3 +80,21 @@ def test_shorten_join_url_isgd_mode_uses_backend() -> None:
 
     assert out == "https://is.gd/x"
     mod._shorten_isgd.assert_awaited_once()
+
+
+def test_build_join_url_fills_blank_query_value() -> None:
+    mod = _module()
+    mod._token_url = "https://frontend.example/?token="
+
+    out = mod._build_join_url("abc==")
+
+    assert out == "https://frontend.example/?token=abc%3D%3D"
+
+
+def test_build_join_url_template_mode() -> None:
+    mod = _module()
+    mod._token_url = "https://frontend.example/join?token={token}&src=irc"
+
+    out = mod._build_join_url("abc==")
+
+    assert out == "https://frontend.example/join?token=abc%3D%3D&src=irc"
