@@ -9,6 +9,12 @@ irc:
   username: pybot
   realname: pybot
   # password: server-password  # optional PASS before registration
+  oidentd:
+    enabled: false
+    path: ~/.config/oidentd.conf  # or ~/.oidentd.conf for older setups
+    # reply: pybot               # default: irc.username
+    # server_host: irc.example.net  # optional: only match this IRC host
+    # server_port: 6697             # optional: only match this IRC port
   sasl:
     enabled: true
     mechanism: auto   # auto | PLAIN | SCRAM-SHA-256

@@ -20,6 +20,13 @@ DEFAULTS: dict[str, Any] = {
         "username": "pybot",
         "realname": "pybot",
         "password": None,
+        "oidentd": {
+            "enabled": False,
+            "path": "~/.config/oidentd.conf",
+            "reply": None,
+            "server_host": None,
+            "server_port": None,
+        },
         "ison_poll_seconds": 30,
         "sasl": {
             "enabled": False,

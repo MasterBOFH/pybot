@@ -49,6 +49,19 @@ IRC socket ──► IRCClient ──► EventBus ──► Modules
 - Nick collision: try `nick` → `altnick` → `nick-` / `nick--` / …; ISON poll reclaims primary (and alt) when free
 - Auto-reconnect on drop: wait 10s, then +10s each try up to 60s, then every 60s (`irc.reconnect`)
 - Outbound flood control via token bucket (`irc.flood.burst` / `rate`)
+- Optional oidentd user-config writer (`irc.oidentd`) to manage ident reply rules
+
+### oidentd integration
+
+When enabled with `irc.oidentd.enabled: true`, pybot writes an oidentd user config
+file (default `~/.config/oidentd.conf`, override with `irc.oidentd.path`) using
+either `irc.oidentd.reply` or `irc.username`.
+
+Optional `irc.oidentd.server_host` / `irc.oidentd.server_port` scope the rule to
+your IRC server; otherwise a global rule is written.
+
+Your system oidentd policy must permit spoofed replies for the bot user, e.g. in
+the system oidentd config by allowing the `spoof` capability for that account.
 
 ### Logging
 

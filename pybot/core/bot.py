@@ -14,6 +14,7 @@ from pybot.core.api import BotAPI
 from pybot.core.events import EventBus
 from pybot.core.http import HttpServer
 from pybot.core.module import Module, collect_handlers, load_module_class
+from pybot.core.oidentd import write_oidentd_user_config
 from pybot.core.reload import reload_module_by_name, reload_package_modules
 from pybot.core.timers import TimerEngine
 from pybot.irc.client import IRCClient
@@ -131,6 +132,7 @@ class Bot:
         except (NotImplementedError, AttributeError):
             pass
 
+        write_oidentd_user_config(self.config.get("irc") or {})
         await self.http.start()
         await self.load_modules()
         try:
@@ -227,6 +229,7 @@ class Bot:
         self.config = load_config(self.config_path)
         setup_logging(self.config.get("logging"))
         irc_cfg = self.config.get("irc") or {}
+        write_oidentd_user_config(irc_cfg)
         self.irc.config = irc_cfg
         flood = irc_cfg.get("flood") or {}
         self.irc.configure_flood(
