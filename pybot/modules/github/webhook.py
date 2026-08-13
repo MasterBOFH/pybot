@@ -11,7 +11,7 @@ from typing import Any
 
 from aiohttp import web
 
-log = logging.getLogger("pybot.modules.github_webhook")
+log = logging.getLogger("pybot.modules.github")
 
 
 def verify_signature(secret: str, body: bytes, signature_header: str | None) -> bool:

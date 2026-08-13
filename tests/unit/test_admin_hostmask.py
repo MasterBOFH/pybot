@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from textwrap import dedent
 from unittest.mock import AsyncMock
 
 from pybot.core.bot import Bot
@@ -34,25 +35,28 @@ def test_hostmask_match_variants(tmp_path) -> None:
 def test_configured_join_channels_include_enabled_module_channels(tmp_path: Path) -> None:
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
-        """irc:
-  nick: x
-  channels:
-    - '#core'
-modules:
-  github_webhook:
-    enabled: true
-    channel: '#dev'
-  gardena:
-    enabled: true
-    channels:
-      - name: '#ops'
-      - '#alerts'
-      - name: '#core'
-  medialink:
-    enabled: false
-    channels:
-      - '#skip'
-""",
+                dedent(
+                        """\
+                        irc:
+                            nick: x
+                            channels:
+                                - '#core'
+                        modules:
+                            github:
+                                enabled: true
+                                channel: '#dev'
+                            gardena:
+                                enabled: true
+                                channels:
+                                    - name: '#ops'
+                                    - '#alerts'
+                                    - name: '#core'
+                            medialink:
+                                enabled: false
+                                channels:
+                                    - '#skip'
+                        """
+                ),
         encoding="utf-8",
     )
     bot = Bot(cfg)

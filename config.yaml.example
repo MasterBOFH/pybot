@@ -55,17 +55,27 @@ logging:
   color: true
 
 modules:
-  github_webhook:
+  github:
     enabled: true
     path: /github
     secret: whsec_change_me
-    channel: "#dev"
-    emojis: true              # set false if your clients hate unicode
+    channel: "#dev"         # default channel for repos not explicitly listed below
+    emojis: true             # set false if your clients hate unicode
     events:
       - push                 # commits + tag pushes (formatted separately)
       - release              # GitHub Release published (enable in webhook too)
       - issues
       - pull_request
+    repos:
+      - name: "owner/repo1"
+        channels:
+          - "#dev"
+          - "#github"
+      - name: "owner/repo2"
+        channels:
+          - "#release"
+      # - name: "owner/repo3"
+      #   channel: "#ops"    # single channel shorthand also works
 
   gardena:
     enabled: false

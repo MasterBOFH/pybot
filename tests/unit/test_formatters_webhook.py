@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 
-from pybot.modules.github_webhook.formatters import (
+from pybot.modules.github.formatters import (
     format_issues,
     format_pull_request,
     format_push,
     format_release,
 )
-from pybot.modules.github_webhook.webhook import verify_signature
+from pybot.modules.github.webhook import verify_signature
 
 
 def test_format_push() -> None:

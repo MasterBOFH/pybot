@@ -28,7 +28,7 @@ Module authors: see **[docs/module-api.md](docs/module-api.md)** (BotAPI, events
 
 - **`pybot/irc/`** — connection (TLS/plain), line protocol, CAP, SASL (PLAIN + SCRAM-SHA-256), ISUPPORT, flood token-bucket, modes, WHO/WHOX, state journal
 - **`pybot/core/`** — Bot orchestrator, EventBus, TimerEngine, BotAPI, HTTP server, module loader, hot-reload
-- **`pybot/modules/`** — loadable modules (first: `github_webhook`)
+- **`pybot/modules/`** — loadable modules (first: `github`)
 
 ```
 IRC socket ──► IRCClient ──► EventBus ──► Modules
@@ -79,14 +79,32 @@ Only modules with `enabled: true` in config are loaded. Core never imports the
 others, so you can run a lean install (core requirements only) and add module
 deps when you turn a module on.
 
-### github_webhook
+### github
 
-Receives GitHub webhooks and reports to an IRC channel.
+Receives GitHub webhooks and reports to configured IRC channels.
 
-1. Set `modules.github_webhook.secret` and `channel` in config
-2. Point GitHub webhook at `http://<host>:8080/github` (or your `path`)
-3. Content type: `application/json`; secret must match
-4. Events: `push` (commits + tags), `release`, `issues`, `pull_request` (configurable; enable the same events on the GitHub webhook)
+1. Set `modules.github.secret` in config
+2. Optionally set a default `channel` for repos not explicitly listed
+3. Use `repos:` to map repository names to channel lists, e.g. `owner/repo: ["#dev", "#github"]`
+4. Point GitHub webhook at `http://<host>:8080/github` (or your `path`)
+5. Content type: `application/json`; secret must match
+6. Events: `push` (commits + tags), `release`, `issues`, `pull_request` (configurable; enable the same events on the GitHub webhook)
+
+Example:
+
+```yaml
+modules:
+  github:
+    enabled: true
+    secret: "..."
+    path: /github
+    channel: "#dev"
+    repos:
+      - name: "owner/repo1"
+        channels: ["#dev", "#github"]
+      - name: "owner/repo2"
+        channel: "#release"
+```
 
 Signature: `X-Hub-Signature-256` (HMAC SHA-256).
 
@@ -141,7 +159,7 @@ Reconnects are disruptive; the bot keeps the TCP connection, negotiated caps, an
 
 - **IRC admin** (configured `irc.admin.hosts` hostmasks and/or `accounts`, prefix `~`):
   - `~reload modules`
-  - `~reload module github_webhook`
+  - `~reload module github`
   - `~reload config`
   - `~reload core`
   - `~reconnect`

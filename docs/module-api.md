@@ -39,7 +39,7 @@ Rules:
    packages there.
 2. Modules that need third-party libraries ship their own
    `pybot/modules/<name>/requirements.txt`.
-3. Modules that only use the stdlib + core deps (e.g. `github_webhook`) need no
+3. Modules that only use the stdlib + core deps (e.g. `github`) need no
    extra requirements file.
 4. Core **imports a module package only when it is enabled** in config
    (`modules.<name>.enabled: true`). Disabled modules are not loaded, so their
