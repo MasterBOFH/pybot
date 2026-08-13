@@ -45,22 +45,41 @@ class BotAPI:
         return asyncio.run_coroutine_threadsafe(coro, loop)
 
     async def privmsg(self, target: str, text: str) -> None:
+        if not self._irc_connected():
+            self.log.warning("Skipping PRIVMSG to %s: IRC disconnected", target)
+            return
         await self._bot.irc.privmsg(target, text)
 
     async def notice(self, target: str, text: str) -> None:
+        if not self._irc_connected():
+            self.log.warning("Skipping NOTICE to %s: IRC disconnected", target)
+            return
         await self._bot.irc.notice(target, text)
 
     async def join(self, channel: str, key: str | None = None) -> None:
+        if not self._irc_connected():
+            self.log.warning("Skipping JOIN %s: IRC disconnected", channel)
+            return
         await self._bot.irc.join(channel, key)
 
     async def part(self, channel: str, message: str | None = None) -> None:
+        if not self._irc_connected():
+            self.log.warning("Skipping PART %s: IRC disconnected", channel)
+            return
         await self._bot.irc.part(channel, message)
 
     async def mode(self, target: str, *args: str) -> None:
+        if not self._irc_connected():
+            self.log.warning("Skipping MODE on %s: IRC disconnected", target)
+            return
         await self._bot.irc.mode(target, *args)
 
     async def who(self, target: str) -> None:
         await self._bot.irc.who.query(target)
+
+    def _irc_connected(self) -> bool:
+        conn = getattr(self._bot.irc, "conn", None)
+        return bool(conn and conn.connected)
 
     def get_user(self, nick: str) -> User | None:
         return self._bot.irc.state.get_user(nick)

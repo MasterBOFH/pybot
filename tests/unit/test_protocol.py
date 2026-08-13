@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from unittest.mock import AsyncMock
 
 import pytest
 
 from pybot.irc.connection import Connection
 from pybot.irc.protocol import format_line, parse_message
+from pybot.modules.medialink.module import MedialinkModule
 
 
 def test_parse_privmsg_with_tags() -> None:
@@ -60,3 +63,21 @@ async def test_connection_close_does_not_wait_forever_on_writer_close() -> None:
     await asyncio.wait_for(conn.close(), timeout=2.5)
 
     assert conn._writer is None
+
+
+@pytest.mark.asyncio
+async def test_medialink_announcement_skips_when_irc_is_disconnected() -> None:
+    module = MedialinkModule()
+    module._channels = [("#chan", False)]
+    module.api = type(
+        "API",
+        (),
+        {
+            "log": logging.getLogger("test.medialink"),
+            "privmsg": AsyncMock(side_effect=RuntimeError("Not connected")),
+        },
+    )()
+
+    await module._announce("info", "hello")
+
+    module.api.privmsg.assert_awaited_once_with("#chan", "hello")

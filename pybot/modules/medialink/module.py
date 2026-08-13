@@ -104,19 +104,37 @@ class MedialinkModule(Module):
             if et == "debug" and not debug:
                 continue
             if et in ("info", "debug"):
-                await self.api.privmsg(channel, text)
+                try:
+                    await self.api.privmsg(channel, text)
+                except RuntimeError as exc:
+                    if "Not connected" in str(exc):
+                        self.api.log.warning(
+                            "medialink: skipping IRC announcement to %s while disconnected",
+                            channel,
+                        )
+                        return
+                    raise
 
     async def _announce_room(self, room_name: str, text: str) -> None:
         """Send to the IRC channel matching the LiveKit room name, if configured."""
         assert self.api is not None
         if not self._room_allowed(room_name):
             return
-        # Prefer configured casing
-        for channel, _debug in self._channels:
-            if self.api.nicks_equal(channel, room_name):
-                await self.api.privmsg(channel, text)
+        try:
+            # Prefer configured casing
+            for channel, _debug in self._channels:
+                if self.api.nicks_equal(channel, room_name):
+                    await self.api.privmsg(channel, text)
+                    return
+            await self.api.privmsg(room_name, text)
+        except RuntimeError as exc:
+            if "Not connected" in str(exc):
+                self.api.log.warning(
+                    "medialink: skipping room announcement to %s while disconnected",
+                    room_name,
+                )
                 return
-        await self.api.privmsg(room_name, text)
+            raise
 
     async def setup(self, api: BotAPI) -> None:
         await super().setup(api)
