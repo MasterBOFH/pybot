@@ -1,0 +1,2 @@
+livekit-api
+PyJWT>=2.0

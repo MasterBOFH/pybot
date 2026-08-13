@@ -74,6 +74,19 @@ class BotAPI:
             return []
         return [m.nick for m in ch.members.values()]
 
+    def casefold(self, name: str) -> str:
+        return self._bot.irc.isupport.casefold(name)
+
+    def nicks_equal(self, a: str, b: str) -> bool:
+        return self._bot.irc.isupport.equal(a, b)
+
+    def is_channel_op(self, channel: str, nick: str) -> bool:
+        ch = self.get_channel(channel)
+        if not ch:
+            return False
+        member = ch.members.get(self.casefold(nick))
+        return bool(member and "o" in member.prefixes)
+
     def on(self, event: str, handler: Callable[..., Awaitable[None] | None]) -> None:
         self._bot.bus.on(event, handler, owner=self.owner)
 

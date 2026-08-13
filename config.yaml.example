@@ -61,16 +61,12 @@ modules:
     enabled: false
     client_id: ""             # Husqvarna/Gardena application key
     client_secret: ""
-    # Per-channel which event levels to receive (info = activity/alarms,
-    # debug = minor state/activity noise). "all" = both.
+    # Per-channel: omit debug (or debug: false) for normal status only;
+    # debug: true also gets noisy state/activity lines.
     channels:
       - name: "#dev"
-        events: [all]
       # - name: "#lawn"
-      #   events: [info]
-      # - name: "#lawn-debug"
-      #   events: [debug]
-    # channel: "#dev"         # shorthand: one channel, events: [all]
+      #   debug: true
     # command_prefix: "~"     # defaults to irc.admin.prefix
     weather:                  # optional; status-line snippets + ~weather
       enabled: false
@@ -79,3 +75,25 @@ modules:
       latitude: 0.0
       longitude: 0.0
       update_seconds: 3600
+
+  medialink:
+    enabled: false
+    api_key: ""
+    api_secret: ""
+    server_url: "https://your-livekit-host"   # LiveKit HTTP API URL
+    token_url: "https://your-frontend/?token="
+    token_ttl_minutes: 60
+    poll_seconds: 30
+    # command_prefix: "$"     # defaults to irc.admin.prefix
+    announcements:
+      enabled: true
+      interval_minutes: 15
+    webhook:
+      enabled: true
+      path: /livekit/webhook
+      verify: true            # JWT signature via api_secret
+    # Room name = IRC channel name for $join
+    channels:
+      - name: "#routing"
+      # - name: "#dev"
+      #   debug: true          # also receive noisy track/debug lines

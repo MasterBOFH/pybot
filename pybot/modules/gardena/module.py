@@ -23,8 +23,8 @@ class GardenaModule(Module):
         super().__init__()
         self.api_client: GardenaAPI | None = None
         self._pending_state: dict[str, Any] = {}
-        # list of (channel, frozenset of event types incl. "all")
-        self._channels: list[tuple[str, frozenset[str]]] = []
+        # (channel name, debug announcements enabled)
+        self._channels: list[tuple[str, bool]] = []
         self._cmd_prefix = "~"
         self._weather_enabled = False
 
@@ -50,34 +50,32 @@ class GardenaModule(Module):
         if state.get("location_id") is not None:
             self.api_client.location_id = state["location_id"]
 
-    def _parse_channels(self, cfg: dict[str, Any]) -> list[tuple[str, frozenset[str]]]:
-        """Per-channel event filters (gardener-style info/debug/all)."""
+    def _parse_channels(self, cfg: dict[str, Any]) -> list[tuple[str, bool]]:
+        """Return (channel, debug). debug defaults to false when omitted."""
         channels_cfg = cfg.get("channels")
         if isinstance(channels_cfg, list) and channels_cfg:
-            out: list[tuple[str, frozenset[str]]] = []
+            out: list[tuple[str, bool]] = []
             for entry in channels_cfg:
                 if isinstance(entry, str):
-                    out.append((entry, frozenset({"all"})))
+                    out.append((entry, False))
                     continue
                 if not isinstance(entry, dict):
                     continue
                 name = entry.get("name") or entry.get("channel")
                 if not name:
                     continue
-                events = entry.get("events") or entry.get("alerts") or ["all"]
-                if isinstance(events, str):
-                    events = [events]
-                out.append((str(name), frozenset(str(e).lower() for e in events)))
+                out.append((str(name), bool(entry.get("debug", False))))
             return out
-        # Backward compat: single channel: gets everything
         single = cfg.get("channel") or "#dev"
-        return [(str(single), frozenset({"all"}))]
+        return [(str(single), False)]
 
     async def _announce_async(self, event_type: str, text: str) -> None:
         assert self.api is not None
         et = event_type.lower()
-        for channel, events in self._channels:
-            if "all" in events or et in events:
+        for channel, debug in self._channels:
+            if et == "debug" and not debug:
+                continue
+            if et in ("info", "debug"):
                 await self.api.privmsg(channel, text)
 
     async def setup(self, api: BotAPI) -> None:
@@ -132,7 +130,7 @@ class GardenaModule(Module):
             )
 
         dest = ", ".join(
-            f"{ch}[{','.join(sorted(ev))}]" for ch, ev in self._channels
+            f"{ch}{'[debug]' if dbg else ''}" for ch, dbg in self._channels
         )
         self.api.log.info(
             "Gardena started → %s (commands: %sdevices / %sweather)",

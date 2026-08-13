@@ -20,6 +20,9 @@ python -m pybot config.yaml
 
 Root `requirements.txt` is core-only. Modules that need extra packages ship
 `pybot/modules/<name>/requirements.txt` — install those for the modules you enable.
+Disabled modules are never imported, so unused module deps are not required.
+
+Module authors: see **[docs/module-api.md](docs/module-api.md)** (BotAPI, events, lifecycle).
 
 ## Architecture
 
@@ -59,6 +62,10 @@ Modules schedule work with `api.every(...)` / `api.after(...)`. Timers are owned
 
 ## Modules
 
+Only modules with `enabled: true` in config are loaded. Core never imports the
+others, so you can run a lean install (core requirements only) and add module
+deps when you turn a module on.
+
 ### github_webhook
 
 Receives GitHub webhooks and reports to an IRC channel.
@@ -79,8 +86,21 @@ pip install -r pybot/modules/gardena/requirements.txt
 ```
 
 Configure under `modules.gardena` (credentials, optional nested `weather:`).
-Announcements are routed per channel via `channels:` — each entry picks `events`
-of `info`, `debug`, and/or `all` (same idea as gardener’s channel `alerts`).
+Announcements go to each entry under `channels:`; set `debug: true` on a channel
+to also receive noisy state lines (default `false`).
+
+### medialink
+
+LiveKit video rooms: `$join` / `$rooms` / `$createroom` / `$deleteroom`, webhooks, periodic announcements.
+
+```bash
+pip install -r pybot/modules/medialink/requirements.txt
+```
+
+Configure under `modules.medialink` (API credentials, `token_url`, room `channels`).
+Point LiveKit webhooks at the bot HTTP path (default `POST /livekit/webhook`).
+Room names match IRC channel names for `$join`. Optional per-channel `debug: true`
+for noisy track/debug lines (default `false`).
 
 ## Hot reload
 
