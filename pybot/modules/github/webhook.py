@@ -33,12 +33,18 @@ def make_handler(
     async def handle(request: web.Request) -> web.StreamResponse:
         body = await request.read()
         sig = request.headers.get("X-Hub-Signature-256")
+        content_type = request.headers.get("Content-Type", "")
+        content_encoding = request.headers.get("Content-Encoding", "")
+        preview = body[:64].decode("utf-8", errors="replace")
         log.debug(
-            "GitHub webhook received: event=%s remote=%s content_length=%s sig=%s",
+            "GitHub webhook received: event=%s remote=%s content_length=%s sig=%s content_type=%s content_encoding=%s payload_preview=%r",
             request.headers.get("X-GitHub-Event", ""),
             request.remote,
             len(body),
             bool(sig),
+            content_type,
+            content_encoding,
+            preview,
         )
         if not verify_signature(secret, body, sig):
             log.warning("Invalid GitHub webhook signature from %s", request.remote)
@@ -59,7 +65,13 @@ def make_handler(
             payload = json.loads(body.decode("utf-8"))
             log.debug("GitHub webhook payload decoded: event=%s repo=%s", event, (payload.get("repository") or {}).get("full_name"))
         except json.JSONDecodeError:
-            log.exception("GitHub webhook JSON decode failed for event %s", event)
+            log.exception(
+                "GitHub webhook JSON decode failed for event=%s content_type=%s content_encoding=%s payload_preview=%r",
+                event,
+                content_type,
+                content_encoding,
+                preview,
+            )
             return web.Response(status=400, text="invalid json")
 
         try:

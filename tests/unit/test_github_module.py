@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 
+import pybot.modules.github.webhook as github_webhook
 from pybot.modules.github.module import GitHubModule
 from pybot.modules.github.webhook import make_handler
 
@@ -20,6 +21,9 @@ class CapturingLogger:
         self.messages.append(message % args if args else message)
 
     def warning(self, message: str, *args: object) -> None:
+        self.messages.append(message % args if args else message)
+
+    def exception(self, message: str, *args: object) -> None:
         self.messages.append(message % args if args else message)
 
 
@@ -186,3 +190,41 @@ def test_fake_webhook_handler_accepts_signed_push_event() -> None:
     assert response.status == 200
     assert seen["event"] == "push"
     assert seen["repo"] == "org/repo1"
+
+
+def test_invalid_json_logs_body_preview(monkeypatch) -> None:
+    secret = "test-secret"
+    body = b"not-json"
+    sig = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+
+    class FakeRequest:
+        def __init__(self, body_bytes: bytes, headers: dict[str, str]) -> None:
+            self._body = body_bytes
+            self.headers = headers
+            self.remote = "127.0.0.1"
+
+        async def read(self) -> bytes:
+            return self._body
+
+    logger = CapturingLogger()
+    monkeypatch.setattr(github_webhook, "log", logger)
+
+    handler = make_handler(secret=secret, allowed_events={"push"}, on_event=lambda *_args, **_kwargs: None)
+    response = asyncio.run(
+        handler(
+            FakeRequest(
+                body,
+                {
+                    "X-Hub-Signature-256": sig,
+                    "X-GitHub-Event": "push",
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "identity",
+                },
+            )
+        )
+    )
+
+    assert response.status == 400
+    logged = "\n".join(logger.messages)
+    assert "payload_preview" in logged
+    assert "not-json" in logged
