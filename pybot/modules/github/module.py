@@ -72,10 +72,29 @@ class GitHubModule(Module):
             entries[str(name)] = normalized
         return entries
 
+    def _configured_channels(self) -> list[str]:
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for channel in [*self._default_channels, *[ch for channels in self._repo_channels.values() for ch in channels]]:
+            channel = str(channel).strip()
+            if not channel or channel.lower() in {item.lower() for item in seen}:
+                continue
+            seen.add(channel)
+            ordered.append(channel)
+        return ordered
+
+    async def reload_config(self, config: dict[str, Any]) -> None:
+        await super().reload_config(config)
+        self.config = config
+        self._apply_runtime_config()
+        if self.api is not None:
+            self.api.register_channels(self._configured_channels())
+
     async def setup(self, api: BotAPI) -> None:
         await super().setup(api)
         assert self.api is not None
         self._apply_runtime_config()
+        self.api.register_channels(self._configured_channels())
 
         if not self._secret:
             self.api.log.warning("github: no secret configured")
@@ -97,6 +116,7 @@ class GitHubModule(Module):
 
     async def teardown(self) -> None:
         if self.api:
+            self.api.unregister_channels()
             self.api.unmount_routes()
         await super().teardown()
 

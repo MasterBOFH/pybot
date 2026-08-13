@@ -33,34 +33,32 @@ def test_hostmask_match_variants(tmp_path) -> None:
     assert bot._hostmask_match("al[]ce!*@*", "AL{}CE", "u", "h")
 
 
-def test_configured_join_channels_include_enabled_module_channels(tmp_path: Path) -> None:
+def test_configured_join_channels_are_core_only_until_a_module_registers(tmp_path: Path) -> None:
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
-                dedent(
-                        """\
-                        irc:
-                            nick: x
-                            channels:
-                                - '#core'
-                        modules:
-                            github:
-                                enabled: true
-                                channel: '#dev'
-                            gardena:
-                                enabled: true
-                                channels:
-                                    - name: '#ops'
-                                    - '#alerts'
-                                    - name: '#core'
-                            medialink:
-                                enabled: false
-                                channels:
-                                    - '#skip'
-                        """
-                ),
+        dedent(
+            """\
+            irc:
+              nick: x
+              channels:
+                - '#core'
+            modules:
+              github:
+                enabled: true
+                channel: '#dev'
+              gardena:
+                enabled: true
+                channels:
+                  - '#ops'
+                  - '#alerts'
+            """
+        ),
         encoding="utf-8",
     )
     bot = Bot(cfg)
+
+    assert bot._configured_join_channels() == [("#core", None)]
+    bot.register_wanted_channels("module:github", ["#dev", "#ops", "#alerts"])
 
     assert bot._configured_join_channels() == [
         ("#core", None),
@@ -71,7 +69,7 @@ def test_configured_join_channels_include_enabled_module_channels(tmp_path: Path
     assert bot.irc._channels_to_join == bot._configured_join_channels()  # type: ignore[attr-defined]
 
 
-def test_repo_channel_mappings_are_auto_joined(tmp_path: Path) -> None:
+def test_module_setup_registers_repo_channels_with_bot_api(tmp_path: Path) -> None:
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
         dedent(
@@ -91,13 +89,21 @@ def test_repo_channel_mappings_are_auto_joined(tmp_path: Path) -> None:
                       - '#github'
                   - name: 'org/repo2'
                     channel: '#release'
-              gardena:
-                enabled: false
             """
         ),
         encoding="utf-8",
     )
     bot = Bot(cfg)
+    mod = __import__("pybot.modules.github.module", fromlist=["GitHubModule"]).GitHubModule()
+    mod.config = {
+        "channel": "#dev",
+        "repos": [
+            {"name": "org/repo1", "channels": ["#ops", "#github"]},
+            {"name": "org/repo2", "channel": "#release"},
+        ],
+    }
+
+    asyncio.run(mod.setup(__import__("pybot.core.api", fromlist=["BotAPI"]).BotAPI(bot, "github")))
 
     assert bot._configured_join_channels() == [
         ("#core", None),
@@ -108,7 +114,7 @@ def test_repo_channel_mappings_are_auto_joined(tmp_path: Path) -> None:
     ]
 
 
-def test_invite_to_configured_channel_auto_joins(tmp_path: Path) -> None:
+def test_invite_to_registered_channel_auto_joins(tmp_path: Path) -> None:
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
         dedent(
@@ -117,15 +123,12 @@ def test_invite_to_configured_channel_auto_joins(tmp_path: Path) -> None:
               nick: x
               channels:
                 - '#core'
-            modules:
-              github:
-                enabled: true
-                channel: '#dev'
             """
         ),
         encoding="utf-8",
     )
     bot = Bot(cfg)
+    bot.register_wanted_channels("module:github", ["#dev"])
     bot.irc.registered = True
     bot.irc.conn = type("Conn", (), {"connected": True})()
     bot.irc.join = AsyncMock()

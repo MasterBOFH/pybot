@@ -35,12 +35,14 @@ class Bot:
             host=http_cfg.get("host", "0.0.0.0"),
             port=int(http_cfg.get("port", 8080)),
         )
+        self._wanted_channels: dict[str, dict[str, Any]] = {}
         self.irc = IRCClient(
             self.config["irc"],
             emit=self._emit,
             timers=self.timers,
             raw=self.raw,
         )
+        self._rebuild_channel_registry()
         self.irc.set_channels_to_join(self._configured_join_channels())
         self.modules: dict[str, Module] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -56,55 +58,49 @@ class Bot:
     def _reconnect_cfg(self) -> dict[str, Any]:
         return (self.config.get("irc") or {}).get("reconnect") or {}
 
-    def _configured_join_channels(self) -> list[tuple[str, str | None]]:
-        """Return core channels plus enabled module announcement/join channels."""
-        seen: set[str] = set()
-        joined: list[tuple[str, str | None]] = []
+    def _register_wanted_channel(self, owner: str, channel: str | None, *, key: str | None = None) -> None:
+        if not channel:
+            return
+        folded = self.irc.isupport.casefold(channel)
+        entry = self._wanted_channels.setdefault(
+            folded,
+            {"name": channel, "key": key, "owners": set()},
+        )
+        entry["name"] = channel
+        if key is not None:
+            entry["key"] = key
+        entry["owners"].add(owner)
 
-        def add(entries: list[tuple[str, str | None]]) -> None:
-            for name, key in entries:
-                folded = self.irc.isupport.casefold(name)
-                if folded in seen:
-                    continue
-                seen.add(folded)
-                joined.append((name, key))
+    def _unregister_wanted_channels(self, owner: str) -> None:
+        for folded in list(self._wanted_channels):
+            owners = self._wanted_channels[folded]["owners"]
+            if owner in owners:
+                owners.discard(owner)
+                if not owners:
+                    del self._wanted_channels[folded]
 
-        def module_channel_entries(cfg: dict[str, Any]) -> list[Any]:
-            out: list[Any] = []
+    def register_wanted_channels(self, owner: str, channels: list[Any] | None = None) -> None:
+        self._unregister_wanted_channels(owner)
+        for name, key in IRCClient._parse_channel_list(channels):
+            self._register_wanted_channel(owner, name, key=key)
+        self.irc.set_channels_to_join(self._configured_join_channels())
 
-            channels_cfg = cfg.get("channels")
-            if isinstance(channels_cfg, list) and channels_cfg:
-                out.extend(channels_cfg)
+    def unregister_wanted_channels(self, owner: str) -> None:
+        self._unregister_wanted_channels(owner)
+        self.irc.set_channels_to_join(self._configured_join_channels())
 
-            single = cfg.get("channel")
-            if single:
-                out.append(single)
-
-            repos_cfg = cfg.get("repos")
-            if isinstance(repos_cfg, list):
-                for repo_cfg in repos_cfg:
-                    if not isinstance(repo_cfg, dict):
-                        continue
-                    repo_channels = repo_cfg.get("channels")
-                    if isinstance(repo_channels, list) and repo_channels:
-                        out.extend(repo_channels)
-                    else:
-                        single_repo_channel = repo_cfg.get("channel")
-                        if single_repo_channel:
-                            out.append(single_repo_channel)
-
-            return out
-
+    def _rebuild_channel_registry(self) -> None:
+        self._wanted_channels.clear()
         irc_cfg = self.config.get("irc") or {}
-        add(IRCClient._parse_channel_list(irc_cfg.get("channels") or []))
+        for name, key in IRCClient._parse_channel_list(irc_cfg.get("channels") or []):
+            self._register_wanted_channel("core", name, key=key)
 
-        modules_cfg = self.config.get("modules") or {}
-        for cfg in modules_cfg.values():
-            if not isinstance(cfg, dict) or not cfg.get("enabled", True):
-                continue
-            add(IRCClient._parse_channel_list(module_channel_entries(cfg)))
-
-        return joined
+    def _configured_join_channels(self) -> list[tuple[str, str | None]]:
+        """Return the union of all configured channels the bot wants to follow."""
+        return [
+            (entry["name"], entry["key"])
+            for entry in self._wanted_channels.values()
+        ]
 
     def _core_admin_channels(self) -> set[str]:
         irc_cfg = self.config.get("irc") or {}
@@ -217,6 +213,7 @@ class Bot:
         if not instance:
             return
         owner = f"module:{name}"
+        self.unregister_wanted_channels(owner)
         self.timers.cancel_owner(owner)
         self.bus.off_owner(owner)
         self.http.unmount_owner(owner)
@@ -249,6 +246,15 @@ class Bot:
             if name not in self.modules and isinstance(cfg, dict) and cfg.get("enabled", True):
                 await self.load_module(name)
 
+        for name, instance in list(self.modules.items()):
+            cfg = self.module_config(name)
+            if isinstance(cfg, dict):
+                await instance.reload_config(cfg)
+                if hasattr(instance, "_configured_channels"):
+                    channels = instance._configured_channels()
+                    if self.modules.get(name) is instance:
+                        self.register_wanted_channels(f"module:{name}", channels)
+
     async def reload_config_and_modules(self) -> None:
         log.info("Reloading config + modules (SIGHUP)")
         self.config = load_config(self.config_path)
@@ -256,6 +262,7 @@ class Bot:
         irc_cfg = self.config.get("irc") or {}
         write_oidentd_user_config(irc_cfg)
         self.irc.config = irc_cfg
+        self._rebuild_channel_registry()
         flood = irc_cfg.get("flood") or {}
         self.irc.configure_flood(
             burst=flood.get("burst"),

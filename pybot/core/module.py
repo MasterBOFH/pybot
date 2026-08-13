@@ -39,6 +39,8 @@ class Module:
 
     async def reload_config(self, config: dict[str, Any]) -> None:
         self.config = config
+        if self.api is not None:
+            self.api.unregister_channels()
 
     def get_state(self) -> dict[str, Any]:
         """Optional hot-reload state (override in modules that need it)."""

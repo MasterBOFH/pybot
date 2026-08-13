@@ -136,6 +136,14 @@ class MedialinkModule(Module):
                 return
             raise
 
+    async def reload_config(self, config: dict[str, Any]) -> None:
+        await super().reload_config(config)
+        self.config = config
+        self._channels = self._parse_channels(config)
+        self._room_channels = {self.api.casefold(name) for name, _ in self._channels} if self.api else set()
+        if self.api is not None:
+            self.api.register_channels([channel for channel, _debug in self._channels])
+
     async def setup(self, api: BotAPI) -> None:
         await super().setup(api)
         assert self.api is not None
@@ -146,6 +154,7 @@ class MedialinkModule(Module):
             cfg.get("command_prefix") or admin.get("prefix") or "$"
         )
         self._channels = self._parse_channels(cfg)
+        self.api.register_channels([channel for channel, _debug in self._channels])
         self._room_channels = {api.casefold(name) for name, _ in self._channels}
         self._token_url = cfg.get("token_url") or "https://example.com/?token="
         shortener = cfg.get("shortener") or {}
@@ -394,6 +403,7 @@ class MedialinkModule(Module):
 
     async def teardown(self) -> None:
         if self.api:
+            self.api.unregister_channels()
             self.api.unmount_routes()
         if self.lk:
             await self.lk.close()

@@ -112,6 +112,12 @@ class BotAPI:
     def off(self, event: str, handler: Callable[..., Awaitable[None] | None] | None = None) -> None:
         self._bot.bus.off(event, handler, owner=self.owner)
 
+    def register_channels(self, channels: list[Any] | None = None) -> None:
+        self._bot.register_wanted_channels(self.owner, channels)
+
+    def unregister_channels(self) -> None:
+        self._bot.unregister_wanted_channels(self.owner)
+
     def every(
         self,
         interval: float,

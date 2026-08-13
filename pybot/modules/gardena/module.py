@@ -78,12 +78,20 @@ class GardenaModule(Module):
             if et in ("info", "debug"):
                 await self.api.privmsg(channel, text)
 
+    async def reload_config(self, config: dict[str, Any]) -> None:
+        await super().reload_config(config)
+        self.config = config
+        self._channels = self._parse_channels(config)
+        if self.api is not None:
+            self.api.register_channels([channel for channel, _debug in self._channels])
+
     async def setup(self, api: BotAPI) -> None:
         await super().setup(api)
         assert self.api is not None
         cfg = self.config
         bot_cfg = api.get_bot_config()
         self._channels = self._parse_channels(cfg)
+        self.api.register_channels([channel for channel, _debug in self._channels])
         admin = (bot_cfg.get("irc") or {}).get("admin") or {}
         self._cmd_prefix = cfg.get("command_prefix") or admin.get("prefix") or "~"
 
@@ -140,6 +148,8 @@ class GardenaModule(Module):
         )
 
     async def teardown(self) -> None:
+        if self.api:
+            self.api.unregister_channels()
         if self.api_client:
             self.api_client.stop()
             self.api_client = None
