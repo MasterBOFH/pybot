@@ -258,13 +258,26 @@ class MedialinkModule(Module):
         assert self.api is not None
         room = payload.get("room") or {}
         room_name = room.get("name") or "Unknown"
+        room_sid = room.get("sid")
         participant = payload.get("participant") or {}
         pname = participant.get("name") or participant.get("identity") or "Unknown"
         identity = participant.get("identity") or pname
 
         if event == "room_started":
+            if self.lk:
+                self.lk.note_room_started(room_name, room)
+                if not self.lk.should_announce_lifecycle(
+                    "room_started", room_name, str(room_sid or "")
+                ):
+                    return
             await self._announce("info", f"🏠 LiveKit room started: \x02{room_name}\x02")
         elif event == "room_finished":
+            if self.lk:
+                self.lk.note_room_finished(room_name)
+                if not self.lk.should_announce_lifecycle(
+                    "room_finished", room_name, str(room_sid or "")
+                ):
+                    return
             dur = format_duration(room)
             await self._announce(
                 "info", f"🏠 LiveKit room ended: \x02{room_name}\x02{dur}"

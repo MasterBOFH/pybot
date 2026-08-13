@@ -44,6 +44,34 @@ class LiveKitAPI:
         self.room_service: Any = None
         self.room_cache: dict[str, dict[str, Any]] = {}
         self.participant_cache: dict[str, dict[str, dict[str, Any]]] = {}
+        self._lifecycle_emitted_at: dict[tuple[str, str, str], float] = {}
+
+    def should_announce_lifecycle(
+        self,
+        event: str,
+        room_name: str,
+        sid: str | None = None,
+        *,
+        window_seconds: float = 3.0,
+    ) -> bool:
+        """Return true when a lifecycle event should be announced.
+
+        This de-duplicates near-simultaneous poll/webhook lifecycle events.
+        """
+        now = time.time()
+        key = (event, room_name.casefold(), sid or "")
+        last = self._lifecycle_emitted_at.get(key)
+        if last is not None and (now - last) < window_seconds:
+            return False
+        self._lifecycle_emitted_at[key] = now
+
+        # Keep the in-memory dedupe map bounded.
+        if len(self._lifecycle_emitted_at) > 512:
+            cutoff = now - 300
+            self._lifecycle_emitted_at = {
+                k: ts for k, ts in self._lifecycle_emitted_at.items() if ts >= cutoff
+            }
+        return True
 
     async def connect(self) -> None:
         if not self.api_key or not self.api_secret:
@@ -225,11 +253,14 @@ class LiveKitAPI:
                         "num_participants": room.num_participants,
                         "last_seen": DateTime.now(),
                     }
-                    await self._emit(
-                        "info",
-                        f"🏠 New LiveKit room created: \x02{room.name}\x02 | "
-                        f"👥 {room.num_participants} participants",
-                    )
+                    if self.should_announce_lifecycle(
+                        "room_started", room.name, room.sid
+                    ):
+                        await self._emit(
+                            "info",
+                            f"🏠 New LiveKit room created: \x02{room.name}\x02 | "
+                            f"👥 {room.num_participants} participants",
+                        )
                 else:
                     old = self.room_cache[room.name]["num_participants"]
                     self.room_cache[room.name].update(
@@ -252,7 +283,9 @@ class LiveKitAPI:
                     continue
                 if DateTime.now() - data["last_seen"] > timedelta(minutes=2):
                     stale.append(name)
-                    await self._emit("info", f"🏠 Room \x02{name}\x02 has ended")
+                    sid = str(data.get("sid") or "")
+                    if self.should_announce_lifecycle("room_finished", name, sid):
+                        await self._emit("info", f"🏠 Room \x02{name}\x02 has ended")
             for name in stale:
                 del self.room_cache[name]
                 self.participant_cache.pop(name, None)
@@ -311,3 +344,31 @@ class LiveKitAPI:
             }
         else:
             room.pop(identity, None)
+
+    def note_room_started(self, room_name: str, room_data: dict[str, Any] | None = None) -> None:
+        """Update room cache from webhook lifecycle events.
+
+        This keeps poll-based announcements in sync with webhook ordering.
+        """
+        data = room_data or {}
+        existing = self.room_cache.get(room_name, {})
+        self.room_cache[room_name] = {
+            "name": data.get("name") or existing.get("name") or room_name,
+            "sid": data.get("sid") or existing.get("sid", ""),
+            "creation_time": (
+                data.get("creation_time")
+                or existing.get("creation_time")
+                or "Unknown"
+            ),
+            "num_participants": int(
+                data.get("num_participants")
+                or existing.get("num_participants")
+                or 0
+            ),
+            "last_seen": DateTime.now(),
+        }
+
+    def note_room_finished(self, room_name: str) -> None:
+        """Remove ended room from caches when webhook reports completion."""
+        self.room_cache.pop(room_name, None)
+        self.participant_cache.pop(room_name, None)
