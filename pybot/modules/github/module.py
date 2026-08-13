@@ -42,8 +42,9 @@ class GitHubModule(Module):
     def _repo_channels_for(self, repo: str | None) -> list[str]:
         if not self._repo_channels or not self.config:
             self._apply_runtime_config()
-        if repo and repo in self._repo_channels:
-            return list(self._repo_channels[repo])
+        repo_key = repo.casefold() if isinstance(repo, str) else None
+        if repo_key and repo_key in self._repo_channels:
+            return list(self._repo_channels[repo_key])
         if self._default_channels:
             return list(self._default_channels)
         return []
@@ -69,7 +70,7 @@ class GitHubModule(Module):
                 normalized = []
             if not normalized:
                 normalized = [str(cfg.get("channel") or "#dev")]
-            entries[str(name)] = normalized
+            entries[str(name).casefold()] = normalized
         return entries
 
     def _configured_channels(self) -> list[str]:
@@ -122,16 +123,29 @@ class GitHubModule(Module):
 
     async def _on_github_event(self, event: str, payload: dict[str, Any]) -> None:
         assert self.api is not None
-        repo = (payload.get("repository") or {}).get("full_name") or ""
-        channels = self._repo_channels_for(repo)
+        repo = (payload.get("repository") or {}).get("full_name") or "<unknown>"
+        channels = self._repo_channels_for(repo if repo != "<unknown>" else None)
+
+        self.api.log.debug(
+            "Received supported GitHub event %s for repo %s; posting to %s",
+            event,
+            repo,
+            channels,
+        )
+
         if not channels:
+            self.api.log.debug(
+                "GitHub event %s for repo %s had no configured channels; ignoring",
+                event,
+                repo,
+            )
             return
 
         lines = format_event(event, payload, emojis=self._emojis)
         if not lines:
-            self.api.log.debug("No IRC lines for event %s", event)
+            self.api.log.debug("No IRC lines for event %s on repo %s", event, repo)
             return
         for channel in channels:
             for line in lines:
                 await self.api.privmsg(channel, line)
-        self.api.log.info("Reported GitHub %s to %s (%d lines)", event, channels, len(lines))
+        self.api.log.info("Reported GitHub %s for %s to %s (%d lines)", event, repo, channels, len(lines))

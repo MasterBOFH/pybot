@@ -42,8 +42,10 @@ def make_handler(
             return web.json_response({"ok": True, "pong": True})
 
         if allowed_events and event not in allowed_events:
-            log.debug("Ignoring GitHub event %s", event)
+            log.debug("Ignoring GitHub event %s (not enabled in config)", event)
             return web.json_response({"ok": True, "ignored": event})
+
+        log.debug("Accepted GitHub webhook event %s", event)
 
         try:
             payload = json.loads(body.decode("utf-8"))
