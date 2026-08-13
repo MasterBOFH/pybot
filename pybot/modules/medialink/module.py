@@ -290,9 +290,9 @@ class MedialinkModule(Module):
 
             timeout = aiohttp.ClientTimeout(total=max(self._shortener_timeout, 1.0))
             async with aiohttp.ClientSession(timeout=timeout) as session:
+                req_url = self._tinyurl_request_url(url)
                 async with session.get(
-                    self._shortener_tinyurl_endpoint,
-                    params={"url": url},
+                    req_url,
                 ) as resp:
                     if resp.status != 200:
                         self.api.log.warning(
@@ -307,6 +307,17 @@ class MedialinkModule(Module):
         except Exception:
             self.api.log.debug("medialink: tinyurl shortening failed", exc_info=True)
             return url
+
+    def _tinyurl_request_url(self, url: str) -> str:
+        """Build TinyURL API request preserving nested query '=' semantics.
+
+        TinyURL currently mangles fully percent-encoded nested query separators
+        (`token%3D...`). Keep URL delimiters readable while still encoding unsafe
+        characters like spaces.
+        """
+        sep = "&" if "?" in self._shortener_tinyurl_endpoint else "?"
+        encoded_target = quote(url, safe=":/?=%#")
+        return f"{self._shortener_tinyurl_endpoint}{sep}url={encoded_target}"
 
     async def _shorten_isgd(self, url: str) -> str:
         assert self.api is not None

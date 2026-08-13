@@ -98,3 +98,14 @@ def test_build_join_url_template_mode() -> None:
     out = mod._build_join_url("abc==")
 
     assert out == "https://frontend.example/join?token=abc%3D%3D&src=irc"
+
+
+def test_tinyurl_request_preserves_nested_query_equals() -> None:
+    mod = _module()
+    mod._shortener_tinyurl_endpoint = "https://tinyurl.com/api-create.php"
+
+    req = mod._tinyurl_request_url("https://videolink.example/?token=abc.def")
+
+    assert req.startswith("https://tinyurl.com/api-create.php?url=")
+    assert "token=abc.def" in req
+    assert "token%3D" not in req
