@@ -185,4 +185,4 @@ Harness layout:
 
 ## Admin note
 
-Admin commands are only accepted from listed hostmasks (`nick!user@host` with `*`/`?`) or services accounts (when known via SASL/WHOX/caps), and only when sent in a core `irc.channels` admin channel.
+Admin commands are only accepted from listed hostmasks (`nick!user@host` with `*`/`?`) or services accounts (when known via SASL/WHOX/caps), and must be sent either in a core `irc.channels` admin channel or as a private message to the bot.

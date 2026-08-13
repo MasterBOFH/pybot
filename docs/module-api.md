@@ -279,7 +279,8 @@ keys depend on the event.
 | `raw_message` | `command`, `params`, `tags`, `nick` |
 
 Admin commands (`irc.admin.prefix`, default `~`) are handled in core **before**
-module `privmsg` handlers when the sender matches the ACL.
+module `privmsg` handlers when the sender matches the ACL. They are accepted in
+core admin channels and in private messages to the bot.
 
 ---
 

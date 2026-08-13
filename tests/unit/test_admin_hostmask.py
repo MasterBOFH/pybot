@@ -99,3 +99,36 @@ modules: {}
 
     assert bot.reload_modules.await_count == 1
     bot.irc.privmsg.assert_awaited_once_with("#core", "reloaded modules")
+
+
+def test_admin_commands_work_in_private_message(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        """irc:
+  nick: pybot
+  channels:
+    - '#core'
+  admin:
+    hosts:
+      - '*!admin@host'
+    prefix: '~'
+modules: {}
+""",
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+    bot.irc.privmsg = AsyncMock()  # type: ignore[assignment]
+    bot.reload_modules = AsyncMock()  # type: ignore[assignment]
+
+    private_message = {
+        "nick": "Alice",
+        "user": "admin",
+        "host": "host",
+        "target": "pybot",
+        "text": "~reload modules",
+    }
+
+    asyncio.run(bot._maybe_admin(private_message))
+
+    bot.reload_modules.assert_awaited_once()
+    bot.irc.privmsg.assert_awaited_once_with("Alice", "reloaded modules")

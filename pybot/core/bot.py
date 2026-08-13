@@ -94,6 +94,9 @@ class Bot:
     def _is_core_admin_channel(self, target: str | None) -> bool:
         if not target:
             return False
+        # Allow authenticated admins to issue core commands via PM as well.
+        if target[:1] not in self.irc.isupport.chantypes:
+            return True
         return self.irc.isupport.casefold(target) in self._core_admin_channels()
 
     def _reconnect_initial(self) -> float:
@@ -389,8 +392,21 @@ class Bot:
         if not text.startswith(prefix):
             return
         if not self._is_admin(payload):
+            log.debug(
+                "Ignoring admin command from non-admin sender nick=%r user=%r host=%r account=%r target=%r",
+                payload.get("nick"),
+                payload.get("user"),
+                payload.get("host"),
+                payload.get("account"),
+                payload.get("target"),
+            )
             return
         if not self._is_core_admin_channel(payload.get("target")):
+            log.debug(
+                "Ignoring admin command outside allowed channel target=%r core_channels=%s",
+                payload.get("target"),
+                sorted(self._core_admin_channels()),
+            )
             return
         body = text[len(prefix) :].strip()
         parts = body.split()
