@@ -22,9 +22,9 @@ def _client() -> IRCClient:
 @pytest.mark.asyncio
 async def test_whox_parsing_uses_trailing_realname_and_flags_field() -> None:
     c = _client()
-    # WHOX asks for flags in the middle fields; realname comes from the trailing param.
+    # WHOX requests channel, user, host, nick, flags, account, realname.
     msg = parse_message(
-        ":irc.example 354 pybot 0 #chan ident host.example Alice account n/a :Alice Example"
+        ":irc.example 354 pybot #chan ident host.example Alice H account :Alice Example"
     )
 
     await c._handle_who_354(msg)
@@ -37,9 +37,9 @@ async def test_whox_parsing_uses_trailing_realname_and_flags_field() -> None:
 @pytest.mark.asyncio
 async def test_whox_parsing_keeps_account_and_realname() -> None:
     c = _client()
-    # Realname is always the trailing param in WHOX.
+    # Account and realname should both be preserved when WHOX requests them.
     msg = parse_message(
-        ":irc.example 354 pybot 0 #chan ident host.example Alice account * :Alice Example"
+        ":irc.example 354 pybot #chan ident host.example Alice H* account :Alice Example"
     )
 
     await c._handle_who_354(msg)

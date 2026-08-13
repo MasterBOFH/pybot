@@ -11,10 +11,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("pybot.irc.who")
 
-# Field order for 354 replies — middle WHOX params only.
-# Realname is always carried in the trailing param and is parsed separately.
-# t c u h n a f → type channel user host nick account flags
-WHOX_FLAGS = "tcuhnaf"
+# Field order for 354 replies — canonical WHOX fields we request.
+# c u h n f a r → channel user host nick flags account realname
+WHOX_FLAGS = "cuhnfar"
 
 
 class WhoManager:

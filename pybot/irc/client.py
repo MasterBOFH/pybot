@@ -819,9 +819,9 @@ class IRCClient:
         log.debug("State WHO %s", u.debug_str())
 
     async def _handle_who_354(self, msg: Message) -> None:
-        # 354 me <fields matching WHOX_FLAGS order tcuhnaf>
-        # t c u h n a f → type channel user host nick account flags
-        params = msg.params[1:-1]  # skip our nick and trailing realname
+        # 354 me <fields matching WHOX_FLAGS order cuhnfar>
+        # c u h n f a r → channel user host nick flags account realname
+        params = msg.params[1:]  # skip our nick; realname is requested explicitly
         fields = list(WHOX_FLAGS)
         if len(params) < len(fields):
             # pad
@@ -836,8 +836,7 @@ class IRCClient:
         if channel == "*":
             channel = None
 
-        # In WHOX, realname is the trailing parameter.
-        realname = msg.trailing
+        realname = data.get("r") or msg.trailing
         oper = _oper_from_flags(data.get("f"))
 
         u = self.state.update_who(
