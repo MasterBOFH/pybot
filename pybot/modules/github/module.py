@@ -123,6 +123,11 @@ class GitHubModule(Module):
     async def _on_github_event(self, event: str, payload: dict[str, Any]) -> None:
         assert self.api is not None
         repo = (payload.get("repository") or {}).get("full_name") or "<unknown>"
+        self.api.log.debug(
+            "Received supported GitHub event %s with payload repo=%s; dispatching repo lookup",
+            event,
+            repo,
+        )
         channels = self._repo_channels_for(repo if repo != "<unknown>" else None)
 
         self.api.log.debug(

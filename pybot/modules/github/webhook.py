@@ -33,12 +33,20 @@ def make_handler(
     async def handle(request: web.Request) -> web.StreamResponse:
         body = await request.read()
         sig = request.headers.get("X-Hub-Signature-256")
+        log.debug(
+            "GitHub webhook received: event=%s remote=%s content_length=%s sig=%s",
+            request.headers.get("X-GitHub-Event", ""),
+            request.remote,
+            len(body),
+            bool(sig),
+        )
         if not verify_signature(secret, body, sig):
             log.warning("Invalid GitHub webhook signature from %s", request.remote)
             return web.Response(status=401, text="invalid signature")
 
         event = request.headers.get("X-GitHub-Event", "")
         if event == "ping":
+            log.debug("GitHub webhook ping received")
             return web.json_response({"ok": True, "pong": True})
 
         if allowed_events and event not in allowed_events:
@@ -49,11 +57,15 @@ def make_handler(
 
         try:
             payload = json.loads(body.decode("utf-8"))
+            log.debug("GitHub webhook payload decoded: event=%s repo=%s", event, (payload.get("repository") or {}).get("full_name"))
         except json.JSONDecodeError:
+            log.exception("GitHub webhook JSON decode failed for event %s", event)
             return web.Response(status=400, text="invalid json")
 
         try:
+            log.debug("Dispatching GitHub event %s to module handler", event)
             await on_event(event, payload)
+            log.debug("GitHub event %s handler completed", event)
         except Exception:
             log.exception("Error handling GitHub event %s", event)
             return web.Response(status=500, text="handler error")
