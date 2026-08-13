@@ -78,11 +78,13 @@ class Connection:
         self._read_task = asyncio.create_task(self._read_loop(), name="irc-read")
 
     async def _read_loop(self) -> None:
-        assert self._reader is not None
+        reader = self._reader
+        if reader is None:
+            return
         err: Exception | None = None
         try:
             while True:
-                data = await self._reader.readline()
+                data = await reader.readline()
                 if not data:
                     break
                 line = data.decode("utf-8", errors="replace").rstrip("\r\n")
@@ -100,6 +102,7 @@ class Connection:
             log.exception("IRC read loop error")
         finally:
             self.connected = False
+            self._reader = None
             if self._on_disconnect:
                 result = self._on_disconnect(err)
                 if asyncio.iscoroutine(result):
@@ -116,12 +119,6 @@ class Connection:
 
     async def close(self) -> None:
         self.connected = False
-        if self._read_task and not self._read_task.done():
-            self._read_task.cancel()
-            try:
-                await self._read_task
-            except asyncio.CancelledError:
-                pass
         writer = self._writer
         self._writer = None
         if writer:
@@ -137,5 +134,14 @@ class Connection:
                     pass
             except Exception:
                 pass
-        self._reader = None
+
+        task = self._read_task
         self._read_task = None
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        self._reader = None

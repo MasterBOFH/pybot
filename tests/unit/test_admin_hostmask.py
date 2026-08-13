@@ -132,3 +132,47 @@ modules: {}
 
     bot.reload_modules.assert_awaited_once()
     bot.irc.privmsg.assert_awaited_once_with("Alice", "reloaded modules")
+
+
+def test_connection_close_closes_writer_before_cancelling_reader() -> None:
+    from pybot.irc.connection import Connection
+
+    conn = Connection("127.0.0.1", 6667)
+
+    events: list[str] = []
+
+    class FakeReader:
+        pass
+
+    class FakeTask:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def cancel(self) -> None:
+            self.cancelled = True
+            events.append("cancel")
+
+        def done(self) -> bool:
+            return self.cancelled
+
+        def __await__(self):
+            async def _wait() -> None:
+                return None
+
+            return _wait().__await__()
+
+    class FakeWriter:
+        def close(self) -> None:
+            events.append("writer.close")
+
+        async def wait_closed(self) -> None:
+            return None
+
+    conn._reader = FakeReader()
+    conn._writer = FakeWriter()
+    conn._read_task = FakeTask()
+    conn.connected = True
+
+    asyncio.run(conn.close())
+
+    assert events == ["writer.close", "cancel"]
