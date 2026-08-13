@@ -104,6 +104,12 @@ Room names match IRC channel names for `$join`. Optional per-channel `debug: tru
 for noisy track/debug lines (default `false`). The bot auto-joins enabled module
 channels so room announcements can work immediately.
 
+Join URL shortening is configurable with `modules.medialink.shortener.mode`:
+`none` (default), `tinyurl` (public API), `isgd` (public API),
+or `local` (self-hosted redirect endpoint).
+Local mode serves `GET <path>?c=<code>` from the bot and redirects to the full
+`token_url + token` link.
+
 ## Hot reload
 
 Reconnects are disruptive; the bot keeps the TCP connection, negotiated caps, and state journal across reloads.

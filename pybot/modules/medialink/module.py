@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import secrets
 import time
+from urllib.parse import urlencode
 from typing import Any
 
 from pybot.core.api import BotAPI
@@ -27,6 +29,13 @@ class MedialinkModule(Module):
         self._room_channels: set[str] = set()  # casefolded names allowed for join
         self._cmd_prefix = "$"
         self._token_url = ""
+        self._shortener_mode = "none"
+        self._shortener_timeout = 4.0
+        self._shortener_tinyurl_endpoint = "https://tinyurl.com/api-create.php"
+        self._shortener_isgd_endpoint = "https://is.gd/create.php"
+        self._shortener_local_base = ""
+        self._shortener_local_path = "/j"
+        self._shortlinks: dict[str, dict[str, Any]] = {}
         self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
 
     def load_state(self, state: dict[str, Any]) -> None:
@@ -48,6 +57,7 @@ class MedialinkModule(Module):
             "participant_cache": (
                 self.lk.participant_cache.copy() if self.lk else {}
             ),
+            "shortlinks": self._shortlinks.copy(),
         }
 
     def _apply_state(self, state: dict[str, Any]) -> None:
@@ -60,6 +70,7 @@ class MedialinkModule(Module):
         if self.lk:
             self.lk.room_cache = (state.get("room_cache") or {}).copy()
             self.lk.participant_cache = (state.get("participant_cache") or {}).copy()
+        self._shortlinks = (state.get("shortlinks") or {}).copy()
 
     def _parse_channels(self, cfg: dict[str, Any]) -> list[tuple[str, bool]]:
         """Return (channel, debug). debug defaults to false when omitted."""
@@ -119,6 +130,25 @@ class MedialinkModule(Module):
         self._channels = self._parse_channels(cfg)
         self._room_channels = {api.casefold(name) for name, _ in self._channels}
         self._token_url = cfg.get("token_url") or "https://example.com/?token="
+        shortener = cfg.get("shortener") or {}
+        self._shortener_mode = str(shortener.get("mode") or "none").strip().lower()
+        self._shortener_timeout = float(shortener.get("timeout_seconds") or 4.0)
+        self._shortener_tinyurl_endpoint = str(
+            shortener.get("tinyurl_endpoint") or "https://tinyurl.com/api-create.php"
+        )
+        self._shortener_isgd_endpoint = str(
+            shortener.get("isgd_endpoint") or "https://is.gd/create.php"
+        )
+        self._shortener_local_base = str(shortener.get("base_url") or "").rstrip("/")
+        self._shortener_local_path = str(shortener.get("path") or "/j")
+        if not self._shortener_local_path.startswith("/"):
+            self._shortener_local_path = f"/{self._shortener_local_path}"
+        if self._shortener_mode not in ("none", "tinyurl", "isgd", "local"):
+            self.api.log.warning(
+                "medialink: invalid shortener.mode '%s', disabling shortener",
+                self._shortener_mode,
+            )
+            self._shortener_mode = "none"
 
         api_key = cfg.get("api_key") or ""
         api_secret = cfg.get("api_secret") or ""
@@ -181,6 +211,14 @@ class MedialinkModule(Module):
                 "LiveKit webhook POST %s (verify=%s)", path, require_auth
             )
 
+        if self._shortener_mode == "local":
+            self.api.mount_route("GET", self._shortener_local_path, self._shortlink_handler)
+            if not self._shortener_local_base:
+                self.api.log.warning(
+                    "medialink: shortener.mode=local but shortener.base_url is empty; "
+                    "falling back to full token URLs"
+                )
+
         dest = ", ".join(
             f"{ch}{'[debug]' if dbg else ''}" for ch, dbg in self._channels
         ) or "(no channels)"
@@ -189,6 +227,116 @@ class MedialinkModule(Module):
             dest,
             self._cmd_prefix,
         )
+
+    async def _shortlink_handler(self, request):
+        from aiohttp import web
+
+        code = (request.query.get("c") or "").strip()
+        entry = self._shortlinks.get(code)
+        now = int(time.time())
+        if not entry:
+            return web.Response(status=404, text="Unknown short link")
+        if int(entry.get("expires_at") or 0) <= now:
+            self._shortlinks.pop(code, None)
+            return web.Response(status=410, text="Short link expired")
+        location = str(entry.get("url") or "")
+        if not location:
+            return web.Response(status=404, text="Invalid short link")
+        raise web.HTTPFound(location=location)
+
+    def _cleanup_shortlinks(self) -> None:
+        now = int(time.time())
+        stale = [
+            code
+            for code, entry in self._shortlinks.items()
+            if int(entry.get("expires_at") or 0) <= now
+        ]
+        for code in stale:
+            self._shortlinks.pop(code, None)
+
+    async def _shorten_join_url(self, url: str) -> str:
+        if self._shortener_mode == "none":
+            return url
+        if self._shortener_mode == "tinyurl":
+            return await self._shorten_tinyurl(url)
+        if self._shortener_mode == "isgd":
+            return await self._shorten_isgd(url)
+        if self._shortener_mode == "local":
+            return self._shorten_local(url)
+        return url
+
+    async def _shorten_tinyurl(self, url: str) -> str:
+        assert self.api is not None
+        try:
+            import aiohttp
+
+            timeout = aiohttp.ClientTimeout(total=max(self._shortener_timeout, 1.0))
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    self._shortener_tinyurl_endpoint,
+                    params={"url": url},
+                ) as resp:
+                    if resp.status != 200:
+                        self.api.log.warning(
+                            "medialink: tinyurl shorten failed status=%s", resp.status
+                        )
+                        return url
+                    out = (await resp.text()).strip()
+                    if out.startswith("http://") or out.startswith("https://"):
+                        return out
+                    self.api.log.warning("medialink: tinyurl returned invalid response")
+                    return url
+        except Exception:
+            self.api.log.debug("medialink: tinyurl shortening failed", exc_info=True)
+            return url
+
+    async def _shorten_isgd(self, url: str) -> str:
+        assert self.api is not None
+        try:
+            import aiohttp
+
+            timeout = aiohttp.ClientTimeout(total=max(self._shortener_timeout, 1.0))
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    self._shortener_isgd_endpoint,
+                    params={"format": "simple", "url": url},
+                ) as resp:
+                    if resp.status != 200:
+                        self.api.log.warning(
+                            "medialink: is.gd shorten failed status=%s", resp.status
+                        )
+                        return url
+                    out = (await resp.text()).strip()
+                    if out.startswith("http://") or out.startswith("https://"):
+                        return out
+                    self.api.log.warning("medialink: is.gd returned invalid response")
+                    return url
+        except Exception:
+            self.api.log.debug("medialink: is.gd shortening failed", exc_info=True)
+            return url
+
+    def _shorten_local(self, url: str) -> str:
+        assert self.api is not None
+        if not self._shortener_local_base:
+            return url
+        self._cleanup_shortlinks()
+        code = self._new_short_code()
+        ttl = int(self.config.get("token_ttl_minutes") or 60)
+        self._shortlinks[code] = {
+            "url": url,
+            "expires_at": int(time.time()) + max(ttl, 1) * 60,
+        }
+        q = urlencode({"c": code})
+        return f"{self._shortener_local_base}{self._shortener_local_path}?{q}"
+
+    def _new_short_code(self) -> str:
+        # 6 random bytes => ~8 char URL-safe token.
+        for _ in range(8):
+            code = secrets.token_urlsafe(6).rstrip("=")
+            if code not in self._shortlinks:
+                return code
+        # Extremely unlikely fallback.
+        return secrets.token_urlsafe(8).rstrip("=")
 
     async def teardown(self) -> None:
         if self.api:
@@ -212,6 +360,7 @@ class MedialinkModule(Module):
         ]
         for key in stale:
             self.sessions.pop(key, None)
+        self._cleanup_shortlinks()
         if stale and self.api:
             self.api.log.info("Cleaned %d unused LiveKit sessions", len(stale))
 
@@ -560,6 +709,7 @@ class MedialinkModule(Module):
             self._touch_session(identity, room_name)
 
         url = f"{self._token_url}{token}"
+        url = await self._shorten_join_url(url)
         await self.api.privmsg(nick, f"🎥 LiveKit Room: {room_name}")
         await self.api.privmsg(nick, url)
 
