@@ -266,7 +266,11 @@ class IRCClient:
         cmd = msg.command
 
         if cmd == "PING":
-            await self.send("PONG", msg.trailing or (msg.params[0] if msg.params else ""))
+            payload = msg.trailing
+            if payload:
+                await self.conn.send_raw(f"PONG :{payload}")
+            else:
+                await self.send("PONG")
             return
 
         if cmd == "001":
