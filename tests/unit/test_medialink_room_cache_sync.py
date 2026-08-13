@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import sys
+import types
+from unittest.mock import AsyncMock, Mock, patch
+
 from pybot.modules.medialink.livekit_api import LiveKitAPI
 
 
@@ -58,3 +62,33 @@ def test_lifecycle_dedupe_allows_new_sid() -> None:
 
     assert api.should_announce_lifecycle("room_started", "#iron-dev", "RM_1")
     assert api.should_announce_lifecycle("room_started", "#iron-dev", "RM_2")
+
+
+def test_poll_rooms_handles_backend_unavailable_gracefully() -> None:
+    import asyncio
+
+    livekit_module = types.ModuleType("livekit")
+    livekit_api_module = types.ModuleType("livekit.api")
+
+    class FakeListRoomsRequest:
+        pass
+
+    livekit_api_module.ListRoomsRequest = FakeListRoomsRequest
+    livekit_module.api = livekit_api_module
+    sys.modules["livekit"] = livekit_module
+    sys.modules["livekit.api"] = livekit_api_module
+
+    api = _api()
+    svc = Mock()
+    svc.room.list_rooms = AsyncMock(side_effect=RuntimeError("backend unavailable"))
+    api.room_service = svc
+
+    with patch("pybot.modules.medialink.livekit_api.log.warning") as warning, patch.object(
+        api, "close", AsyncMock()
+    ) as close_mock, patch("pybot.modules.medialink.livekit_api.log.exception") as exception:
+        asyncio.run(api.poll_rooms())
+
+    warning.assert_called_once()
+    close_mock.assert_awaited_once()
+    exception.assert_not_called()
+    assert api.room_service is None

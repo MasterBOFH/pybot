@@ -87,7 +87,8 @@ class LiveKitAPI:
             await self.room_service.room.list_rooms(api.ListRoomsRequest())
             log.info("LiveKit connected (%s)", self.server_url)
         except Exception as exc:
-            log.warning("LiveKit connection test failed: %s", exc)
+            self.room_service = None
+            log.warning("LiveKit connection test failed; service unavailable: %s", exc)
 
     async def close(self) -> None:
         if self.room_service is not None:
@@ -240,6 +241,13 @@ class LiveKitAPI:
 
         try:
             rooms_response = await svc.room.list_rooms(api.ListRoomsRequest())
+        except Exception as exc:
+            self.room_service = None
+            await self.close()
+            log.warning("LiveKit room poll failed; backend unavailable or dropped: %s", exc)
+            return
+
+        try:
             rooms = list(rooms_response.rooms or [])
             current_names: set[str] = set()
 
