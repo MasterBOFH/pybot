@@ -20,11 +20,11 @@ def _client() -> IRCClient:
 
 
 @pytest.mark.asyncio
-async def test_whox_parsing_does_not_mark_oper_without_star_in_flags() -> None:
+async def test_whox_parsing_uses_trailing_realname_and_flags_field() -> None:
     c = _client()
-    # No '*' in the WHOX flags field means non-oper.
+    # WHOX asks for flags in the middle fields; realname comes from the trailing param.
     msg = parse_message(
-        ":irc.example 354 pybot 0 #chan ident host.example Alice account H :Alice Example"
+        ":irc.example 354 pybot 0 #chan ident host.example Alice account n/a :Alice Example"
     )
 
     await c._handle_who_354(msg)
@@ -35,19 +35,20 @@ async def test_whox_parsing_does_not_mark_oper_without_star_in_flags() -> None:
 
 
 @pytest.mark.asyncio
-async def test_whox_parsing_marks_oper_when_star_present_in_flags() -> None:
+async def test_whox_parsing_keeps_account_and_realname() -> None:
     c = _client()
-    # WHOX tcuhnaor: flags (o) before trailing realname (r).
+    # Realname is always the trailing param in WHOX.
     msg = parse_message(
-        ":irc.example 354 pybot 0 #chan ident host.example Alice account H* :Alice Example"
+        ":irc.example 354 pybot 0 #chan ident host.example Alice account * :Alice Example"
     )
 
     await c._handle_who_354(msg)
 
     user = c.state.get_user("Alice")
     assert user is not None
-    assert user.oper is True
     assert user.realname == "Alice Example"
+    assert user.account == "account"
+    assert user.oper is True
 
 
 @pytest.mark.asyncio
