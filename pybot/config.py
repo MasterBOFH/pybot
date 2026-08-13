@@ -59,6 +59,10 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+class ConfigError(ValueError):
+    """Raised when the config file cannot be loaded or parsed."""
+
+
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     result = dict(base)
     for key, value in override.items():
@@ -69,12 +73,40 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
+def _format_yaml_error(path: Path, exc: yaml.YAMLError) -> str:
+    parts = [f"Invalid YAML in {path}"]
+    mark = getattr(exc, "problem_mark", None) or getattr(exc, "context_mark", None)
+    if mark is not None:
+        parts[0] += f" at line {mark.line + 1}, column {mark.column + 1}"
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        if lines:
+            start = max(0, mark.line - 1)
+            end = min(len(lines), mark.line + 2)
+            width = len(str(end))
+            for line_no in range(start, end):
+                prefix = ">" if line_no == mark.line else " "
+                parts.append(f"{prefix} {line_no + 1:>{width}} | {lines[line_no]}")
+            parts.append(f"  {' ' * width} | {' ' * mark.column}^")
+
+    details = [text for text in (getattr(exc, "context", None), getattr(exc, "problem", None)) if text]
+    if not details:
+        details = [str(exc)]
+    parts.extend(details)
+    return "\n".join(parts)
+
+
 def load_config(path: str | Path) -> dict[str, Any]:
     path = Path(path)
-    with path.open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigError(_format_yaml_error(path, exc)) from exc
     if not isinstance(data, dict):
-        raise ValueError(f"Config root must be a mapping: {path}")
+        raise ConfigError(f"Config root must be a mapping: {path}")
     return _deep_merge(DEFAULTS, data)
 
 

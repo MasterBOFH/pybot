@@ -7,6 +7,7 @@ import asyncio
 import sys
 from pathlib import Path
 
+from pybot.config import ConfigError
 from pybot.core.bot import Bot
 
 
@@ -23,7 +24,11 @@ def main(argv: list[str] | None = None) -> int:
     if not path.is_file():
         print(f"Config not found: {path}", file=sys.stderr)
         return 1
-    bot = Bot(path)
+    try:
+        bot = Bot(path)
+    except ConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     try:
         asyncio.run(bot.start())
     except KeyboardInterrupt:
