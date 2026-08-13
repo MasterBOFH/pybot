@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 log = logging.getLogger("pybot.irc.who")
 
 # Field order for 354 replies — must match request flag order.
-# ircu2 returns type, channel, user, host, nick, account, realname for this set.
-WHOX_FLAGS = "tcuhnar"
+# ircu2 returns type, channel, user, host, nick, account, realname, oper for this set.
+WHOX_FLAGS = "tcuhnaro"
 
 
 class WhoManager:

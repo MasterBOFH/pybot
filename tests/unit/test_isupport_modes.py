@@ -56,3 +56,16 @@ def test_state_journal_rename_and_modes() -> None:
     st.rename_user("Alice", "Alicia")
     assert st.get_user("alicia") is not None
     assert i.casefold("Alicia") in st.get_channel("#Dev").members
+
+
+def test_state_journal_tracks_oper_flag() -> None:
+    i = ISupport()
+    st = StateJournal(i)
+
+    user = st.update_who("Alice", oper=True)
+    assert user.oper is True
+    assert st.get_user("alice").oper is True
+
+    user = st.update_who("alice", oper=False)
+    assert user.oper is False
+    assert st.get_user("alice").oper is False

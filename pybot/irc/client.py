@@ -765,6 +765,7 @@ class IRCClient:
         if realname and realname[0].isdigit() and " " in realname:
             realname = realname.split(" ", 1)[1]
         away = flags.startswith("G")
+        oper = "*" in flags or "o" in flags or "O" in flags
         u = self.state.update_who(
             nick,
             user=user,
@@ -772,12 +773,13 @@ class IRCClient:
             realname=realname,
             channel=channel if channel != "*" else None,
             away=away,
+            oper=oper,
         )
         log.debug("State WHO %s", u.debug_str())
 
     async def _handle_who_354(self, msg: Message) -> None:
-        # 354 me <fields matching WHOX_FLAGS order tcuhnar>
-        # t c u h n a r → type channel user host nick account realname
+        # 354 me <fields matching WHOX_FLAGS order tcuhnaro>
+        # t c u h n a r o → type channel user host nick account realname oper
         params = msg.params[1:]  # skip our nick
         fields = list(WHOX_FLAGS)
         if len(params) < len(fields):
@@ -792,6 +794,11 @@ class IRCClient:
         channel = data.get("c") or None
         if channel == "*":
             channel = None
+        oper_value = data.get("o")
+        oper = False
+        if oper_value is not None:
+            text = str(oper_value).strip()
+            oper = text not in ("", "0", "false", "False", "n", "N", "no", "No")
         u = self.state.update_who(
             nick,
             user=data.get("u"),
@@ -799,6 +806,7 @@ class IRCClient:
             account=account,
             realname=data.get("r"),
             channel=channel,
+            oper=oper,
         )
         log.debug("State WHOX %s", u.debug_str())
 

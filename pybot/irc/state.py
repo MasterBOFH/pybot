@@ -26,6 +26,7 @@ class User:
     host: str | None = None
     # None = no account / not logged in (or never learned). Else services account name.
     account: str | None = None
+    oper: bool = False
     away: bool = False
     away_message: str | None = None
     realname: str | None = None
@@ -43,7 +44,7 @@ class User:
         chans = sorted(self.channels)
         return (
             f"User(nick={self.nick!r}, user={self.user!r}, host={self.host!r}, "
-            f"account={self.account!r}, away={self.away!r}, "
+            f"account={self.account!r}, oper={self.oper!r}, away={self.away!r}, "
             f"away_message={self.away_message!r}, realname={self.realname!r}, "
             f"channels={chans!r})"
         )
@@ -181,6 +182,7 @@ class StateJournal:
         realname: str | None = None,
         channel: str | None = None,
         away: bool | None = None,
+        oper: bool | None = None,
     ) -> User:
         u = self.ensure_user(nick)
         if user is not None:
@@ -193,6 +195,8 @@ class StateJournal:
             u.realname = realname
         if away is not None:
             u.away = away
+        if oper is not None:
+            u.oper = bool(oper)
         if channel:
             self.add_member(channel, nick)
         return u
