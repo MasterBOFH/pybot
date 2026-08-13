@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 from pybot.core.oidentd import render_user_config, write_oidentd_user_config
@@ -32,6 +33,7 @@ def test_write_oidentd_user_config_uses_username_default(tmp_path: Path) -> None
     assert path == out
     assert out.exists()
     assert 'reply "pybot"' in out.read_text(encoding="utf-8")
+    assert stat.S_IMODE(out.stat().st_mode) == 0o644
 
 
 def test_write_oidentd_user_config_skips_invalid_port(tmp_path: Path) -> None:

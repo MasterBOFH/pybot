@@ -77,7 +77,7 @@ def write_oidentd_user_config(irc_cfg: dict[str, Any]) -> Path | None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-        path.chmod(0o600)
+        path.chmod(0o644)
     except OSError:
         log.exception("Failed to write oidentd user config at %s", path)
         return None
