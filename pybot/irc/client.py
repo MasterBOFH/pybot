@@ -314,6 +314,9 @@ class IRCClient:
         if cmd == "JOIN":
             await self._handle_join(msg)
             return
+        if cmd == "INVITE":
+            await self._handle_invite(msg)
+            return
         if cmd == "PART":
             await self._handle_part(msg)
             return
@@ -396,6 +399,32 @@ class IRCClient:
             tags=msg.tags,
             nick=msg.source_nick,
         )
+
+    async def _handle_invite(self, msg: Message) -> None:
+        """Auto-join configured channels when invited."""
+        if not self.registered or not self.conn.connected:
+            return
+        if len(msg.params) < 2:
+            return
+        invited_nick = msg.params[0]
+        channel = msg.params[1]
+        if not self.isupport.equal(invited_nick, self.nick):
+            return
+
+        allowed = {
+            self.isupport.casefold(name)
+            for name, _key in self._channels_to_join
+        }
+        if self.isupport.casefold(channel) not in allowed:
+            log.debug("Ignoring INVITE to unconfigured channel %s", channel)
+            return
+
+        existing = {self.isupport.casefold(ch.name) for ch in self.state.channels.values()}
+        if self.isupport.casefold(channel) in existing:
+            return
+
+        log.info("Auto-join invited channel %s", channel)
+        await self.join(channel)
 
     async def _handle_nick_unavailable(self, msg: Message) -> None:
         """433/432/437 — try altnick, then nick-, nick--, …"""

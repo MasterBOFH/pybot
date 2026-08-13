@@ -69,6 +69,32 @@ class Bot:
                 seen.add(folded)
                 joined.append((name, key))
 
+        def module_channel_entries(cfg: dict[str, Any]) -> list[Any]:
+            out: list[Any] = []
+
+            channels_cfg = cfg.get("channels")
+            if isinstance(channels_cfg, list) and channels_cfg:
+                out.extend(channels_cfg)
+
+            single = cfg.get("channel")
+            if single:
+                out.append(single)
+
+            repos_cfg = cfg.get("repos")
+            if isinstance(repos_cfg, list):
+                for repo_cfg in repos_cfg:
+                    if not isinstance(repo_cfg, dict):
+                        continue
+                    repo_channels = repo_cfg.get("channels")
+                    if isinstance(repo_channels, list) and repo_channels:
+                        out.extend(repo_channels)
+                    else:
+                        single_repo_channel = repo_cfg.get("channel")
+                        if single_repo_channel:
+                            out.append(single_repo_channel)
+
+            return out
+
         irc_cfg = self.config.get("irc") or {}
         add(IRCClient._parse_channel_list(irc_cfg.get("channels") or []))
 
@@ -76,11 +102,7 @@ class Bot:
         for cfg in modules_cfg.values():
             if not isinstance(cfg, dict) or not cfg.get("enabled", True):
                 continue
-            channels_cfg = cfg.get("channels")
-            if not (isinstance(channels_cfg, list) and channels_cfg):
-                single = cfg.get("channel")
-                channels_cfg = [single] if single else []
-            add(IRCClient._parse_channel_list(channels_cfg))
+            add(IRCClient._parse_channel_list(module_channel_entries(cfg)))
 
         return joined
 

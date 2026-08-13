@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 from pybot.core.bot import Bot
 from pybot.irc.isupport import ISupport
+from pybot.irc.protocol import parse_message
 
 
 class _FakeIRC:
@@ -68,6 +69,70 @@ def test_configured_join_channels_include_enabled_module_channels(tmp_path: Path
         ("#alerts", None),
     ]
     assert bot.irc._channels_to_join == bot._configured_join_channels()  # type: ignore[attr-defined]
+
+
+def test_repo_channel_mappings_are_auto_joined(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        dedent(
+            """\
+            irc:
+              nick: x
+              channels:
+                - '#core'
+            modules:
+              github:
+                enabled: true
+                channel: '#dev'
+                repos:
+                  - name: 'org/repo1'
+                    channels:
+                      - '#ops'
+                      - '#github'
+                  - name: 'org/repo2'
+                    channel: '#release'
+              gardena:
+                enabled: false
+            """
+        ),
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+
+    assert bot._configured_join_channels() == [
+        ("#core", None),
+        ("#dev", None),
+        ("#ops", None),
+        ("#github", None),
+        ("#release", None),
+    ]
+
+
+def test_invite_to_configured_channel_auto_joins(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        dedent(
+            """\
+            irc:
+              nick: x
+              channels:
+                - '#core'
+            modules:
+              github:
+                enabled: true
+                channel: '#dev'
+            """
+        ),
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+    bot.irc.registered = True
+    bot.irc.conn = type("Conn", (), {"connected": True})()
+    bot.irc.join = AsyncMock()
+
+    asyncio.run(bot.irc._dispatch(parse_message(":alice!u@h INVITE x :#dev")))
+
+    bot.irc.join.assert_awaited_once_with("#dev")
 
 
 def test_admin_commands_only_work_in_core_channels(tmp_path: Path) -> None:
