@@ -354,6 +354,8 @@ class Bot:
                 timers=self.timers,
                 raw=self.raw,
             )
+            # Preserve dynamic channel subscriptions across reconnects.
+            self.irc.set_channels_to_join(self._configured_join_channels())
             await self.irc.connect()
         except Exception:
             # Caller (auto) may reschedule; manual raises after schedule

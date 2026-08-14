@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from textwrap import dedent
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from pybot.core.bot import Bot
 from pybot.irc.isupport import ISupport
@@ -112,6 +112,101 @@ def test_module_setup_registers_repo_channels_with_bot_api(tmp_path: Path) -> No
         ("#github", None),
         ("#release", None),
     ]
+
+
+def test_reconnect_reapplies_wanted_channels_to_fresh_client(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        dedent(
+            """\
+            irc:
+              nick: x
+              channels:
+                - '#core'
+            modules: {}
+            """
+        ),
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+    bot.register_wanted_channels(
+        "module:github",
+        [
+            "#dev",
+            {"name": "#ops", "key": "secret"},
+        ],
+    )
+    expected = bot._configured_join_channels()
+    bot.irc.disconnect = AsyncMock()  # type: ignore[assignment]
+
+    created: list[object] = []
+
+    class FreshIRC:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.channels_to_join: list[tuple[str, str | None]] = []
+            created.append(self)
+
+        def set_channels_to_join(self, channels_cfg) -> None:
+            self.channels_to_join = list(channels_cfg or [])
+
+        async def connect(self) -> None:
+            return
+
+    with patch("pybot.core.bot.IRCClient", FreshIRC):
+        asyncio.run(bot._reconnect_now(reason="manual"))
+
+    assert len(created) == 1
+    fresh = created[0]
+    assert isinstance(fresh, FreshIRC)
+    assert fresh.channels_to_join == expected
+    assert bot.irc is fresh
+
+
+def test_bot_api_uses_fresh_irc_client_after_reconnect(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        dedent(
+            """\
+            irc:
+              nick: x
+              channels:
+                - '#core'
+            modules: {}
+            """
+        ),
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+    old_irc = bot.irc
+    bot.irc.disconnect = AsyncMock()  # type: ignore[assignment]
+
+    created: list[object] = []
+
+    class FreshIRC:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.channels_to_join: list[tuple[str, str | None]] = []
+            self.privmsg = AsyncMock()
+            self.conn = type("Conn", (), {"connected": True})()
+            created.append(self)
+
+        def set_channels_to_join(self, channels_cfg) -> None:
+            self.channels_to_join = list(channels_cfg or [])
+
+        async def connect(self) -> None:
+            return
+
+    with patch("pybot.core.bot.IRCClient", FreshIRC):
+        asyncio.run(bot._reconnect_now(reason="manual"))
+
+    fresh = created[0]
+    assert isinstance(fresh, FreshIRC)
+    assert bot.irc is fresh
+    assert bot.irc is not old_irc
+
+    api = __import__("pybot.core.api", fromlist=["BotAPI"]).BotAPI(bot, "github")
+    asyncio.run(api.privmsg("#core", "hello"))
+
+    fresh.privmsg.assert_awaited_once_with("#core", "hello")
 
 
 def test_invite_to_registered_channel_auto_joins(tmp_path: Path) -> None:
