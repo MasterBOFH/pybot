@@ -10,6 +10,7 @@ from pybot.modules.github.formatters import (
     format_pull_request,
     format_push,
     format_release,
+    format_workflow_run,
 )
 from pybot.modules.github.webhook import verify_signature
 
@@ -119,6 +120,75 @@ def test_format_issue_and_pr() -> None:
     )
     assert "merged" in pr_lines[0]
     assert "💜" in pr_lines[0]
+
+
+def test_format_workflow_run_failure() -> None:
+    lines = format_workflow_run(
+        {
+            "action": "completed",
+            "repository": {"full_name": "org/repo"},
+            "workflow_run": {
+                "name": "CI",
+                "run_number": 42,
+                "head_branch": "main",
+                "conclusion": "failure",
+                "html_url": "https://example/runs/42",
+            },
+        }
+    )
+    assert "failed" in lines[0]
+    assert "❌" in lines[0]
+    assert "\x02CI\x02" in lines[0]
+    assert "\x02main\x02" in lines[0]
+    assert lines[1] == "  https://example/runs/42"
+
+
+def test_format_workflow_run_success() -> None:
+    lines = format_workflow_run(
+        {
+            "action": "completed",
+            "repository": {"full_name": "org/repo"},
+            "workflow_run": {
+                "name": "CI",
+                "run_number": 43,
+                "head_branch": "main",
+                "conclusion": "success",
+            },
+        }
+    )
+    assert "passed" in lines[0]
+    assert "✅" in lines[0]
+
+
+def test_format_workflow_run_ignores_non_completed_actions() -> None:
+    assert (
+        format_workflow_run(
+            {
+                "action": "in_progress",
+                "workflow_run": {"conclusion": None},
+            }
+        )
+        == []
+    )
+    assert (
+        format_workflow_run(
+            {
+                "action": "requested",
+                "workflow_run": {"conclusion": None},
+            }
+        )
+        == []
+    )
+
+
+def test_format_workflow_run_ignores_uninteresting_conclusions() -> None:
+    for conclusion in ("neutral", "skipped", "stale"):
+        assert (
+            format_workflow_run(
+                {"action": "completed", "workflow_run": {"conclusion": conclusion}}
+            )
+            == []
+        )
 
 
 def test_webhook_signature() -> None:

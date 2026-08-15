@@ -207,11 +207,47 @@ def format_pull_request(payload: dict[str, Any], *, emojis: bool = True) -> list
     return lines
 
 
+_WORKFLOW_CONCLUSION = {
+    "success": ("passed", "✅"),
+    "failure": ("failed", "❌"),
+    "cancelled": ("was cancelled", "🚫"),
+    "timed_out": ("timed out", "⏱️"),
+    "action_required": ("requires action", "⚠️"),
+}
+
+
+def format_workflow_run(payload: dict[str, Any], *, emojis: bool = True) -> list[str]:
+    """GitHub Actions workflow run completed (success/failure/etc.)."""
+    if payload.get("action") != "completed":
+        return []
+    run = payload.get("workflow_run") or {}
+    conclusion = run.get("conclusion") or ""
+    verb_icon = _WORKFLOW_CONCLUSION.get(conclusion)
+    if not verb_icon:
+        return []
+    verb, icon = verb_icon
+
+    repo = (payload.get("repository") or {}).get("full_name", "?")
+    name = run.get("name") or "workflow"
+    branch = run.get("head_branch") or "?"
+    number = run.get("run_number", "?")
+    url = run.get("html_url") or ""
+
+    lines = [
+        f"{_emoji(emojis, icon)}{bold('GitHub')} {bold(name)} #{number} {verb} "
+        f"on {bold(branch)} in {bold(repo)}"
+    ]
+    if url:
+        lines.append(f"  {url}")
+    return lines
+
+
 FORMATTERS = {
     "push": format_push,
     "issues": format_issues,
     "pull_request": format_pull_request,
     "release": format_release,
+    "workflow_run": format_workflow_run,
 }
 
 

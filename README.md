@@ -88,7 +88,7 @@ Receives GitHub webhooks and reports to configured IRC channels.
 3. Use `repos:` to map repository names to channel lists, e.g. `owner/repo: ["#dev", "#github"]`
 4. Point GitHub webhook at `http://<host>:8080/github` (or your `path`)
 5. Content type: `application/json`; secret must match
-6. Events: `push` (commits + tags), `release`, `issues`, `pull_request` (configurable; enable the same events on the GitHub webhook)
+6. Events: `push` (commits + tags), `release`, `issues`, `pull_request`, `workflow_run` (Actions run completed; configurable; enable the same events on the GitHub webhook)
 
 Example:
 

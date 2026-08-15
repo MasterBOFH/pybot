@@ -99,6 +99,40 @@ def test_event_sends_only_to_configured_repo_channels() -> None:
     assert set(sent_channels) == {"#dev", "#ops"}
 
 
+def test_workflow_run_failure_reports_to_configured_channels() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "repos": [
+            {"name": "org/repo1", "channels": ["#dev", "#ops"]},
+        ],
+    }
+    mod._events = {"workflow_run"}
+    mod._emojis = False
+    api = FakeAPI()
+    mod.api = api
+
+    asyncio.run(
+        mod._on_github_event(
+            "workflow_run",
+            {
+                "action": "completed",
+                "repository": {"full_name": "org/repo1"},
+                "workflow_run": {
+                    "name": "CI",
+                    "run_number": 7,
+                    "head_branch": "main",
+                    "conclusion": "failure",
+                    "html_url": "https://example/runs/7",
+                },
+            },
+        )
+    )
+
+    sent_channels = [channel for channel, _ in api.sent]
+    assert set(sent_channels) == {"#dev", "#ops"}
+    assert any("failed" in text for _, text in api.sent)
+
+
 def test_push_event_debug_logs_repo_and_channels() -> None:
     mod = GitHubModule()
     mod.config = {
