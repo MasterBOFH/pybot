@@ -42,6 +42,34 @@ def render_user_config(
     return "\n".join(lines)
 
 
+def _oidentd_config_path(irc_cfg: dict[str, Any]) -> Path | None:
+    oidentd_cfg = irc_cfg.get("oidentd") or {}
+    if not isinstance(oidentd_cfg, dict) or not oidentd_cfg.get("enabled"):
+        return None
+    path_value = str(oidentd_cfg.get("path") or "~/.config/oidentd.conf")
+    return Path(path_value).expanduser()
+
+
+def remove_oidentd_user_config(irc_cfg: dict[str, Any]) -> None:
+    """Delete the oidentd user config, e.g. after registration or on disconnect.
+
+    The ident reply is only needed for the brief window an ircd may query it
+    during connection setup; removing it afterwards avoids leaving a stale
+    identity reply sitting on disk.
+    """
+    path = _oidentd_config_path(irc_cfg)
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        log.exception("Failed to remove oidentd user config at %s", path)
+        return
+    log.info("Removed oidentd user config at %s", path)
+
+
 def write_oidentd_user_config(irc_cfg: dict[str, Any]) -> Path | None:
     """Write oidentd user config when enabled.
 

@@ -14,7 +14,7 @@ from pybot.core.api import BotAPI
 from pybot.core.events import EventBus
 from pybot.core.http import HttpServer
 from pybot.core.module import Module, collect_handlers, load_module_class
-from pybot.core.oidentd import write_oidentd_user_config
+from pybot.core.oidentd import remove_oidentd_user_config, write_oidentd_user_config
 from pybot.core.reload import reload_module_by_name, reload_package_modules
 from pybot.core.timers import TimerEngine
 from pybot.irc.client import IRCClient
@@ -132,8 +132,10 @@ class Bot:
 
     async def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if event == "disconnect":
+            remove_oidentd_user_config(self.config.get("irc") or {})
             await self._on_irc_disconnect(payload)
         elif event == "registered":
+            remove_oidentd_user_config(self.config.get("irc") or {})
             self._on_irc_registered()
         # Admin commands on privmsg before module handlers
         if event == "privmsg":
@@ -174,6 +176,7 @@ class Bot:
             await self.unload_modules()
             self.timers.cancel_all()
             await self.irc.disconnect(reason)
+            remove_oidentd_user_config(self.config.get("irc") or {})
             await self.http.stop()
         except Exception:
             log.exception("Error during shutdown")
@@ -356,6 +359,7 @@ class Bot:
             )
             # Preserve dynamic channel subscriptions across reconnects.
             self.irc.set_channels_to_join(self._configured_join_channels())
+            write_oidentd_user_config(self.config.get("irc") or {})
             await self.irc.connect()
         except Exception:
             # Caller (auto) may reschedule; manual raises after schedule
