@@ -12,7 +12,7 @@ from typing import Any
 
 log = logging.getLogger("pybot.modules.medialink")
 
-AnnounceFn = Callable[[str, str], Awaitable[None] | None]
+AnnounceFn = Callable[[str], Awaitable[None] | None]
 
 
 class LiveKitAPI:
@@ -27,6 +27,7 @@ class LiveKitAPI:
         command_prefix: str = "$",
         announce: AnnounceFn | None = None,
         announce_room: Callable[[str, str], Awaitable[None] | None] | None = None,
+        room_allowed: Callable[[str], bool] | None = None,
     ) -> None:
         self.api_key = api_key
         self.api_secret = api_secret
@@ -35,6 +36,7 @@ class LiveKitAPI:
         self.command_prefix = command_prefix
         self._announce = announce
         self._announce_room = announce_room
+        self._room_allowed = room_allowed
 
         ann = announcements or {}
         self.announcements_enabled = bool(ann.get("enabled", True))
@@ -264,8 +266,7 @@ class LiveKitAPI:
                     if self.should_announce_lifecycle(
                         "room_started", room.name, room.sid
                     ):
-                        await self._emit(
-                            "info",
+                        await self._emit_debug(
                             f"🏠 New LiveKit room created: \x02{room.name}\x02 | "
                             f"👥 {room.num_participants} participants",
                         )
@@ -279,11 +280,14 @@ class LiveKitAPI:
                     )
                     if room.num_participants != old:
                         verb = "joined" if room.num_participants > old else "left"
-                        await self._emit(
-                            "info",
+                        msg = (
                             f"👋 Participant {verb} room \x02{room.name}\x02 | "
-                            f"👥 Now {room.num_participants} participants",
+                            f"👥 Now {room.num_participants} participants"
                         )
+                        if self._room_allowed and self._room_allowed(room.name):
+                            await self._emit_room(room.name, msg)
+                        else:
+                            await self._emit_debug(msg)
 
             stale = []
             for name, data in self.room_cache.items():
@@ -293,7 +297,7 @@ class LiveKitAPI:
                     stale.append(name)
                     sid = str(data.get("sid") or "")
                     if self.should_announce_lifecycle("room_finished", name, sid):
-                        await self._emit("info", f"🏠 Room \x02{name}\x02 has ended")
+                        await self._emit_debug(f"🏠 Room \x02{name}\x02 has ended")
             for name in stale:
                 del self.room_cache[name]
                 self.participant_cache.pop(name, None)
@@ -332,10 +336,17 @@ class LiveKitAPI:
         if sent:
             self.last_announcement_time = now
 
-    async def _emit(self, event_type: str, text: str) -> None:
+    async def _emit_debug(self, text: str) -> None:
         if not self._announce:
             return
-        result = self._announce(event_type, text)
+        result = self._announce(text)
+        if hasattr(result, "__await__"):
+            await result
+
+    async def _emit_room(self, room_name: str, text: str) -> None:
+        if not self._announce_room:
+            return
+        result = self._announce_room(room_name, text)
         if hasattr(result, "__await__"):
             await result
 

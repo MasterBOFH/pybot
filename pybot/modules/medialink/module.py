@@ -97,23 +97,22 @@ class MedialinkModule(Module):
         assert self.api is not None
         return self.api.casefold(room_name) in self._room_channels
 
-    async def _announce(self, event_type: str, text: str) -> None:
+    async def _announce_debug(self, text: str) -> None:
+        """Send to every channel configured with debug: true."""
         assert self.api is not None
-        et = event_type.lower()
         for channel, debug in self._channels:
-            if et == "debug" and not debug:
+            if not debug:
                 continue
-            if et in ("info", "debug"):
-                try:
-                    await self.api.privmsg(channel, text)
-                except RuntimeError as exc:
-                    if "Not connected" in str(exc):
-                        self.api.log.warning(
-                            "medialink: skipping IRC announcement to %s while disconnected",
-                            channel,
-                        )
-                        return
-                    raise
+            try:
+                await self.api.privmsg(channel, text)
+            except RuntimeError as exc:
+                if "Not connected" in str(exc):
+                    self.api.log.warning(
+                        "medialink: skipping IRC announcement to %s while disconnected",
+                        channel,
+                    )
+                    return
+                raise
 
     async def _announce_room(self, room_name: str, text: str) -> None:
         """Send to the IRC channel matching the LiveKit room name, if configured."""
@@ -193,8 +192,9 @@ class MedialinkModule(Module):
             token_ttl_minutes=int(cfg.get("token_ttl_minutes") or 60),
             announcements=cfg.get("announcements") or {},
             command_prefix=self._cmd_prefix,
-            announce=self._announce,
+            announce=self._announce_debug,
             announce_room=self._announce_room,
+            room_allowed=self._room_allowed,
         )
         if self._pending_state:
             self._apply_state(self._pending_state)
@@ -483,7 +483,7 @@ class MedialinkModule(Module):
                     "room_started", room_name, str(room_sid or "")
                 ):
                     return
-            await self._announce("info", f"🏠 LiveKit room started: \x02{room_name}\x02")
+            await self._announce_debug(f"🏠 LiveKit room started: \x02{room_name}\x02")
         elif event == "room_finished":
             if self.lk:
                 self.lk.note_room_finished(room_name)
@@ -492,8 +492,8 @@ class MedialinkModule(Module):
                 ):
                     return
             dur = format_duration(room)
-            await self._announce(
-                "info", f"🏠 LiveKit room ended: \x02{room_name}\x02{dur}"
+            await self._announce_debug(
+                f"🏠 LiveKit room ended: \x02{room_name}\x02{dur}"
             )
         elif event == "participant_joined":
             if self.lk:
@@ -503,8 +503,8 @@ class MedialinkModule(Module):
                     room_name, f"🎥 \x02{pname}\x02 joined the video chat"
                 )
             else:
-                await self._announce(
-                    "debug", f"👋 \x02{pname}\x02 joined room \x02{room_name}\x02"
+                await self._announce_debug(
+                    f"👋 \x02{pname}\x02 joined room \x02{room_name}\x02"
                 )
         elif event == "participant_left":
             if self.lk:
@@ -514,16 +514,15 @@ class MedialinkModule(Module):
                     room_name, f"📺 \x02{pname}\x02 left the video chat"
                 )
             else:
-                await self._announce(
-                    "debug", f"👋 \x02{pname}\x02 left room \x02{room_name}\x02"
+                await self._announce_debug(
+                    f"👋 \x02{pname}\x02 left room \x02{room_name}\x02"
                 )
         elif event == "track_published":
             track = payload.get("track") or {}
             t = (track.get("type") or "").lower()
             if t in ("video", "audio"):
                 emoji = "📹" if t == "video" else "🎤"
-                await self._announce(
-                    "debug",
+                await self._announce_debug(
                     f"{emoji} \x02{pname}\x02 started {t} in \x02{room_name}\x02",
                 )
         elif event == "track_unpublished":
@@ -531,19 +530,17 @@ class MedialinkModule(Module):
             t = (track.get("type") or "").lower()
             if t in ("video", "audio"):
                 emoji = "📹" if t == "video" else "🎤"
-                await self._announce(
-                    "debug",
+                await self._announce_debug(
                     f"{emoji} \x02{pname}\x02 stopped {t} in \x02{room_name}\x02",
                 )
         elif event == "recording_started":
-            await self._announce(
-                "info", f"🎬 Recording started for room \x02{room_name}\x02"
+            await self._announce_debug(
+                f"🎬 Recording started for room \x02{room_name}\x02"
             )
         elif event == "recording_finished":
             egress = payload.get("egress_info") or {}
             path = (egress.get("file") or {}).get("filename") or "Unknown"
-            await self._announce(
-                "info",
+            await self._announce_debug(
                 f"🎬 Recording finished for room \x02{room_name}\x02 | File: {path}",
             )
         else:
