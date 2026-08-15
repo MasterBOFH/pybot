@@ -68,7 +68,7 @@ async def test_connection_close_does_not_wait_forever_on_writer_close() -> None:
 @pytest.mark.asyncio
 async def test_medialink_announcement_skips_when_irc_is_disconnected() -> None:
     module = MedialinkModule()
-    module._channels = [("#chan", False)]
+    module._channels = [("#chan", True)]
     module.api = type(
         "API",
         (),
@@ -78,6 +78,6 @@ async def test_medialink_announcement_skips_when_irc_is_disconnected() -> None:
         },
     )()
 
-    await module._announce("info", "hello")
+    await module._announce_debug("hello")
 
     module.api.privmsg.assert_awaited_once_with("#chan", "hello")
