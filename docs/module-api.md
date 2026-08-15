@@ -4,6 +4,33 @@ pybot is an asyncio IRC bot. Core owns the IRC connection, state journal, event
 bus, timers, and HTTP server. Feature code lives in **modules** under
 `pybot/modules/<name>/`. Modules talk to core only through **`BotAPI`**.
 
+## Scope of this API
+
+`BotAPI` ([`pybot/core/api.py`](../pybot/core/api.py)) is deliberately small.
+It has grown to cover exactly what the shipped modules (`github`, `gardena`,
+`medialink`) need — it is **not** a finished, general-purpose plugin API.
+Expect gaps if you're building something that doesn't look like those three;
+adding a method to cover a genuinely new need is normal and expected.
+
+Principles for extending it:
+
+- **Module-specific logic stays in the module.** Parsing a GitHub webhook
+  body, talking to the Gardena/LiveKit APIs, formatting your feature's IRC
+  output — that belongs under `pybot/modules/<name>/`, not core.
+- **Generic parsers and callers belong in core, not in a module.** If what
+  you're writing doesn't actually depend on your module's business logic — a
+  generic line/webhook parser, a signature verifier, a reusable HTTP or IRC
+  helper, anything a second module would want unchanged — it should be a PR
+  against `pybot/core/` or `pybot/irc/` (exposed through `BotAPI` if modules
+  need to call it), not code written inside, or copy-pasted between, modules.
+- **When in doubt, ask "would a second module want this unchanged?"** Yes →
+  core candidate. No (it's tied to this module's config/domain) → keep it
+  local.
+- **Don't grow `BotAPI` speculatively.** Add a method when a module needs it,
+  not because it might be handy someday. A small, fully-used surface beats a
+  large, partly-used one — and since the API isn't fully developed yet, it's
+  cheaper to add a method later than to carry one nobody ended up using.
+
 ## Optional dependencies (install without unused modules)
 
 There is nothing to compile — pybot is pure Python. Dependencies are split so
@@ -172,6 +199,59 @@ All outbound traffic goes through the flood token bucket.
 | `await api.mode(target, *args)` | MODE |
 | `await api.who(target)` | WHO / WHOX query via core |
 
+### Channel auto-join
+
+Modules don't manually `api.join()` the channels they need to sit in
+long-term. Instead they *declare* the channels they want, and core keeps the
+bot joined to the union of every declaration — core's own `irc.channels` plus
+every module's registered set — for as long as at least one owner still wants
+each channel.
+
+| Method | Description |
+|--------|--------------|
+| `api.register_channels(channels)` | Replace this module's set of wanted channels |
+| `api.unregister_channels()` | Drop this module's channels |
+
+`channels` is a list where each entry is one of:
+
+- `"#chan"` — plain name
+- `("#chan", "key")` — name + key tuple
+- `{"name": "#chan", "key": "key"}` — dict form
+
+A channel wanted by more than one owner (another module, or core's
+`irc.channels`) stays joined until the last owner drops it. Core diffs the
+combined set against the current connection and JOINs/PARTs as needed,
+including when the set changes via `~reload config` / SIGHUP.
+
+Register on `setup()`, and **re-register from your own `reload_config()`** if
+your wanted channels can change at runtime — core does not infer new channels
+from a config change on its own:
+
+```python
+async def setup(self, api: BotAPI) -> None:
+    await super().setup(api)
+    self.api.register_channels(self._configured_channels())
+
+async def reload_config(self, config: dict[str, Any]) -> None:
+    await super().reload_config(config)
+    self.config = config
+    self.api.register_channels(self._configured_channels())  # re-derive from new config
+
+async def teardown(self) -> None:
+    if self.api:
+        self.api.unregister_channels()
+    await super().teardown()
+```
+
+(`Module.reload_config`'s default implementation already calls
+`api.unregister_channels()` before your override runs, so if you don't
+override it your channels are dropped on reload — override it whenever your
+module registers channels.)
+
+Core also calls `unregister_channels()` automatically when a module is
+unloaded, so `teardown()` only needs the call above if you want channels
+dropped immediately rather than at unload time.
+
 ### State journal (read-only helpers)
 
 | Method | Description |
@@ -302,4 +382,9 @@ core admin channels and in private messages to the bot.
 - [ ] Lazy-import optional heavy libraries
 - [ ] Use `api.every` / `api.after` for periodic work
 - [ ] Use `api.schedule` only from non-asyncio threads
+- [ ] If the module has channels it needs to sit in, call
+      `api.register_channels(...)` in `setup()` and again in an overridden
+      `reload_config()`
 - [ ] Clean up external resources in `teardown`
+- [ ] Generic (non-module-specific) parsing/calling code goes in a core PR,
+      not in the module — see [Scope of this API](#scope-of-this-api)
