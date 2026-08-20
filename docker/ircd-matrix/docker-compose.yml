@@ -1,0 +1,51 @@
+# pybot IRC test harness — ircd matrix for cross-server parser interop.
+#
+#   docker compose -f docker/ircd-matrix/docker-compose.yml up -d --pull missing
+#   docker compose -f docker/ircd-matrix/docker-compose.yml down
+#
+# Prebuilt images from the irccom project (https://github.com/irccom); most
+# are amd64-only, so non-amd64 hosts need QEMU/Rosetta emulation for docker.
+# This is separate from docker/docker-compose.yml (the single self-built
+# ircu2 used by the main integration suite) so the two harnesses never
+# collide and can run side by side.
+services:
+  ircd-irc2:
+    image: irccom/ircd-irc2:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:4440:4440"
+  unreal4:
+    image: irccom/unreal4:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:4441:4441"
+  hybrid:
+    image: irccom/ircd-hybrid:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:4442:4442"
+  ircu2:
+    image: irccom/ircu2:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:4443:4443"
+  bahamut:
+    image: irccom/bahamut:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:4444:4444"
+  ngircd:
+    image: irccom/ngircd:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:4445:4445"
+  charybdis:
+    image: irccom/charybdis:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:4447:4447"
+  inspircd:
+    image: irccom/inspircd:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:4448:4448"
