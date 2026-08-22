@@ -14,7 +14,14 @@ Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
 class HttpServer:
-    """HTTP server with owner-scoped dynamic routes (hot-reload friendly)."""
+    """HTTP server with owner-scoped dynamic routes (hot-reload friendly).
+
+    `start()` is never called eagerly at bot boot — `BotAPI.mount_route()`
+    calls it the first time any module actually mounts a route, so a
+    deployment running no webhook module never opens a listening socket at
+    all. `start()` itself stays idempotent, so every mount after the first is
+    a no-op here.
+    """
 
     def __init__(self, host: str = "0.0.0.0", port: int = 8080) -> None:
         self.host = host

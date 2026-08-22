@@ -101,7 +101,7 @@ class GitHubModule(Module):
             allowed_events=self._events,
             on_event=self._on_github_event,
         )
-        self.api.mount_route("POST", self._path, handler)
+        await self.api.mount_route("POST", self._path, handler)
         repo_map = {
             repo_name: channels for repo_name, channels in sorted(self._repo_channels.items())
         }

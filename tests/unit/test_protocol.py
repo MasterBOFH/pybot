@@ -36,6 +36,36 @@ def test_format_trailing_with_spaces() -> None:
     assert format_line("QUIT", "gone") == "QUIT gone"
 
 
+# --- outbound injection guard ---------------------------------------------
+#
+# Network-derived data now reaches the outbound path: hubstats builds RPING/
+# UPING targets and backchan INVITE nicks out of server names parsed from
+# STATS c/V replies. parse_message() tokenizes on spaces only, so an embedded
+# CR survives parsing intact; re-emitted unsanitized, the receiving ircd would
+# read the tail as a second command.
+
+
+def test_format_line_strips_cr_from_a_param() -> None:
+    line = format_line("UPING", "evil.srv\rPRIVMSG #x :owned")
+
+    assert "\r" not in line
+    assert line == "UPING :evil.srvPRIVMSG #x :owned"
+
+
+def test_format_line_strips_lf_and_nul_from_params_and_command() -> None:
+    assert format_line("INVITE", "ev\nil", "&opers\x00") == "INVITE evil &opers"
+    assert format_line("QUI\r\nT", "bye") == "QUIT bye"
+
+
+def test_format_line_leaves_ordinary_params_untouched() -> None:
+    assert format_line("PRIVMSG", "#chan", "hi there") == "PRIVMSG #chan :hi there"
+    assert format_line("RPING", "hub.test.net") == "RPING hub.test.net"
+    assert (
+        format_line("PRIVMSG", "#chan", "a:b", tags={"account": "alice"})
+        == "@account=alice PRIVMSG #chan a:b"
+    )
+
+
 def test_parse_numeric() -> None:
     m = parse_message(":server 001 pybot :Welcome")
     assert m.command == "001"

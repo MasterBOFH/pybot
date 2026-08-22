@@ -40,6 +40,8 @@ irc:
       - youraccount          # services account (account-tag / WHOX / SASL)
     prefix: "~"
 
+# Only used if a loaded module actually mounts a webhook route (e.g. github,
+# medialink) -- the server never binds a socket at all if none does.
 http:
   host: 0.0.0.0
   port: 8080

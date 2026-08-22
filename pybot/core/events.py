@@ -32,14 +32,25 @@ class EventBus:
         if handler is None and owner is None:
             del self._handlers[event]
             return
-        self._handlers[event] = [
-            (own, h)
-            for own, h in self._handlers[event]
-            if not (
-                (owner is not None and own == owner)
-                or (handler is not None and h is handler)
-            )
-        ]
+        if handler is not None and owner is not None:
+            # Both given: remove only the exact (owner, handler) pair. OR
+            # semantics here would also strip every other handler sharing
+            # this owner — wrong, since one module registers several
+            # handlers under one owner and must be able to remove just one.
+            self._handlers[event] = [
+                (own, h)
+                for own, h in self._handlers[event]
+                if not (own == owner and h is handler)
+            ]
+        else:
+            self._handlers[event] = [
+                (own, h)
+                for own, h in self._handlers[event]
+                if not (
+                    (owner is not None and own == owner)
+                    or (handler is not None and h is handler)
+                )
+            ]
         if not self._handlers[event]:
             del self._handlers[event]
 

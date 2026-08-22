@@ -48,6 +48,7 @@ class Bot:
         self.loop: asyncio.AbstractEventLoop | None = None
         self._stop_event = asyncio.Event()
         self._stopping = False
+        self._exit_code: int = 0
         self._reconnecting = False
         self._reconnect_delay = self._reconnect_initial()
         self._reconnect_timer = None
@@ -142,7 +143,11 @@ class Bot:
             await self._maybe_admin(payload)
         await self.bus.emit(event, payload)
 
-    async def start(self) -> None:
+    def request_exit_code(self, code: int) -> None:
+        """Set the code start() returns once stop() completes."""
+        self._exit_code = code
+
+    async def start(self) -> int:
         self.loop = asyncio.get_running_loop()
         loop = self.loop
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -156,7 +161,10 @@ class Bot:
             pass
 
         write_oidentd_user_config(self.config.get("irc") or {})
-        await self.http.start()
+        # No eager http.start() here: the server only binds a socket once a
+        # module actually mounts a route (see BotAPI.mount_route) — most
+        # deployments run no webhook module at all, so there's no reason to
+        # hold a port open for nothing.
         await self.load_modules()
         try:
             await self.irc.connect()
@@ -165,6 +173,7 @@ class Bot:
             self._schedule_reconnect()
         log.info("Bot started")
         await self._stop_event.wait()
+        return self._exit_code
 
     async def stop(self, reason: str = "shutdown") -> None:
         if self._stopping:
@@ -336,8 +345,12 @@ class Bot:
             return
         try:
             await self._reconnect_now(reason="auto")
-        except Exception:
-            log.exception("IRC reconnect attempt failed")
+        except Exception as exc:
+            # A single retry failing is expected, already-handled behavior
+            # (the backoff below is exactly what handles it) — not a crash,
+            # so no traceback: a persistently broken connection would
+            # otherwise dump one on every retry, forever.
+            log.warning("IRC reconnect attempt failed: %s", exc)
             self._schedule_reconnect()
 
     async def _reconnect_now(self, *, reason: str) -> None:

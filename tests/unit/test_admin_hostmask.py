@@ -94,6 +94,7 @@ def test_module_setup_registers_repo_channels_with_bot_api(tmp_path: Path) -> No
         encoding="utf-8",
     )
     bot = Bot(cfg)
+    bot.http.start = AsyncMock()  # type: ignore[method-assign]
     mod = __import__("pybot.modules.github.module", fromlist=["GitHubModule"]).GitHubModule()
     mod.config = {
         "channel": "#dev",

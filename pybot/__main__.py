@@ -30,10 +30,9 @@ def main(argv: list[str] | None = None) -> int:
         print(exc, file=sys.stderr)
         return 1
     try:
-        asyncio.run(bot.start())
+        return asyncio.run(bot.start())
     except KeyboardInterrupt:
-        pass
-    return 0
+        return 0
 
 
 if __name__ == "__main__":

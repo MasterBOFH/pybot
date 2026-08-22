@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -23,6 +24,12 @@ log = logging.getLogger("pybot.irc.client")
 # Pre-registration nick failures we recover from by trying another nick
 _NICK_FAIL_NUMERICS = frozenset({"432", "433", "437"})
 _MAX_NICK_ATTEMPTS = 30
+
+# OPER replies: 381 RPL_YOUREOPER, 464 ERR_PASSWDMISMATCH, 491 ERR_NOOPERHOST
+_OPER_SUCCESS_NUMERIC = "381"
+_OPER_REPLY_NUMERICS = frozenset({_OPER_SUCCESS_NUMERIC, "464", "491"})
+# 219 RPL_ENDOFSTATS terminates a STATS reply burst
+_STATS_END_NUMERIC = "219"
 
 
 def fit_nick(nick: str, nicklen: int) -> str:
@@ -98,6 +105,12 @@ class IRCClient:
             config.get("channels") or []
         )
         self._welcome_event = None
+        # Single in-flight OPER waiter (see oper())
+        self._oper_event: asyncio.Event | None = None
+        self._oper_reply: Message | None = None
+        # Single in-flight STATS collector (see stats())
+        self._stats_event: asyncio.Event | None = None
+        self._stats_lines: list[tuple[int, list[str]]] | None = None
 
     @staticmethod
     def _parse_channel_list(
@@ -206,6 +219,88 @@ class IRCClient:
         else:
             await self.send("PART", channel)
 
+    async def kick(self, channel: str, nick: str, reason: str | None = None) -> None:
+        if reason:
+            await self.send("KICK", channel, nick, reason)
+        else:
+            await self.send("KICK", channel, nick)
+
+    async def oper(
+        self, name: str, password: str, timeout: float = 10.0
+    ) -> tuple[bool, str]:
+        """Send OPER and await the first 381/464/491 reply.
+
+        Returns (success, message). Only one call is expected in flight.
+        """
+        self._oper_reply = None
+        self._oper_event = asyncio.Event()
+        try:
+            await self.send("OPER", name, password)
+            try:
+                await asyncio.wait_for(self._oper_event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                log.warning("OPER %s timed out after %ss", name, timeout)
+                return (False, "timed out waiting for OPER reply")
+            reply = self._oper_reply
+            if reply is None:
+                return (False, "timed out waiting for OPER reply")
+            if reply.command == _OPER_SUCCESS_NUMERIC:
+                return (True, reply.trailing or "")
+            return (False, reply.trailing or reply.command)
+        finally:
+            self._oper_event = None
+            self._oper_reply = None
+
+    async def stats(
+        self, letter: str, timeout: float = 10.0
+    ) -> list[tuple[int, list[str]]]:
+        """Send STATS <letter> and collect numerics until 219 or timeout.
+
+        Returns the collected (code, params) pairs in arrival order, excluding
+        the terminating 219 line. Only one call is expected in flight.
+        """
+        collected: list[tuple[int, list[str]]] = []
+        self._stats_lines = collected
+        self._stats_event = asyncio.Event()
+        try:
+            await self.send("STATS", letter)
+            try:
+                await asyncio.wait_for(self._stats_event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                log.warning(
+                    "STATS %s timed out after %ss (%d line(s) collected)",
+                    letter,
+                    timeout,
+                    len(collected),
+                )
+        finally:
+            self._stats_event = None
+            self._stats_lines = None
+        return collected
+
+    def _feed_numeric_waiters(self, msg: Message, cmd: str) -> None:
+        """Feed a numeric to pending oper()/stats() waiters.
+
+        Never consumes the message — the caller still dispatches it normally.
+        """
+        if (
+            self._oper_event is not None
+            and not self._oper_event.is_set()
+            and cmd in _OPER_REPLY_NUMERICS
+        ):
+            self._oper_reply = msg
+            self._oper_event.set()
+
+        if (
+            self._stats_lines is not None
+            and self._stats_event is not None
+            and not self._stats_event.is_set()
+        ):
+            if cmd == _STATS_END_NUMERIC:
+                self._stats_event.set()
+            else:
+                self._stats_lines.append((int(cmd), list(msg.params)))
+
     async def sync_channels(
         self, channels_cfg: list[Any] | None = None
     ) -> None:
@@ -264,6 +359,9 @@ class IRCClient:
                 return
 
         cmd = msg.command
+
+        if cmd.isdigit():
+            self._feed_numeric_waiters(msg, cmd)
 
         if cmd == "PING":
             payload = msg.trailing

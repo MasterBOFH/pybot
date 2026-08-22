@@ -198,6 +198,12 @@ All outbound traffic goes through the flood token bucket.
 | `await api.part(channel, message=None)` | PART |
 | `await api.mode(target, *args)` | MODE |
 | `await api.who(target)` | WHO / WHOX query via core |
+| `await api.kick(channel, nick, reason=None)` | KICK; omits the reason param when falsy |
+| `await api.raw(command, *params)` | Send an arbitrary raw IRC line |
+| `await api.oper(name, password, timeout=10.0)` | OPER; returns `(success, message)` from the `381`/`464`/`491` reply |
+| `await api.stats(letter, timeout=10.0)` | `STATS <letter>`; collects replies until `219` (RPL_ENDOFSTATS) or timeout, returns `list[(code, params)]` |
+| `await api.shutdown(reason, exit_code=1)` | Request a process exit code, then stop the bot |
+| `api.get_own_nick()` | The bot's current nick (may differ from the configured one) |
 
 ### Channel auto-join
 

@@ -29,6 +29,13 @@ _COLORS = {
     logging.ERROR: "\033[31m",      # red
     logging.CRITICAL: "\033[35m",   # magenta
 }
+#: Commands whose parameters are credentials. Their outbound lines are masked
+#: before they reach the raw log — raw logging ships enabled at DEBUG with its
+#: own stderr handler, so an unmasked OPER/PASS would put the password in
+#: logs/journald/docker logs on every connect. Inbound replies never echo the
+#: password back, so only the outbound side needs this.
+_SENSITIVE_COMMANDS = frozenset({"OPER", "PASS"})
+
 _NAME_COLOR = "\033[34m"            # blue
 _RAW_LEVEL = "\033[90m"             # bright black / grey (level column)
 _RAW_IN = "\033[36m"                # cyan  <<
@@ -93,6 +100,21 @@ class RawFormatter(logging.Formatter):
         return f"{ts}  {level_plain}  {msg}"
 
 
+def _mask_sensitive(line: str) -> str:
+    """Replace the params of a credential-bearing command with a placeholder.
+
+    format_line() already uppercases the command, but this uppercases whatever
+    it splits out anyway: send_raw() is reachable with a hand-built line too.
+    """
+    command, _, rest = line.partition(" ")
+    if not rest:
+        return line
+    upper = command.upper()
+    if upper in _SENSITIVE_COMMANDS:
+        return f"{upper} <redacted>"
+    return line
+
+
 class RawLogger:
     """Dedicated logger for raw IRC lines (<< inbound, >> outbound)."""
 
@@ -109,7 +131,7 @@ class RawLogger:
         self._log.debug("<< %s", line)
 
     def outbound(self, line: str) -> None:
-        self._log.debug(">> %s", line)
+        self._log.debug(">> %s", _mask_sensitive(line))
 
     def set_level(self, level: int | str) -> None:
         if isinstance(level, str):

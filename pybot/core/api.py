@@ -74,12 +74,51 @@ class BotAPI:
             return
         await self._bot.irc.mode(target, *args)
 
+    async def kick(self, channel: str, nick: str, reason: str | None = None) -> None:
+        if not self._irc_connected():
+            self.log.warning("Skipping KICK %s from %s: IRC disconnected", nick, channel)
+            return
+        await self._bot.irc.kick(channel, nick, reason)
+
+    async def raw(self, command: str, *params: str) -> None:
+        if not self._irc_connected():
+            self.log.warning("Skipping raw %s: IRC disconnected", command)
+            return
+        await self._bot.irc.send(command, *params)
+
+    async def oper(
+        self, name: str, password: str, timeout: float = 10.0
+    ) -> tuple[bool, str]:
+        return await self._bot.irc.oper(name, password, timeout=timeout)
+
+    async def stats(
+        self, letter: str, timeout: float = 10.0
+    ) -> list[tuple[int, list[str]]]:
+        return await self._bot.irc.stats(letter, timeout=timeout)
+
+    async def shutdown(self, reason: str, exit_code: int = 1) -> None:
+        """Request a process exit code, then stop the bot."""
+        self._bot.request_exit_code(exit_code)
+        await self._bot.stop(reason)
+
     async def who(self, target: str) -> None:
         await self._bot.irc.who.query(target)
 
     def _irc_connected(self) -> bool:
         conn = getattr(self._bot.irc, "conn", None)
         return bool(conn and conn.connected)
+
+    def is_registered(self) -> bool:
+        """True once 001 has been received on the current IRC connection.
+
+        A module's own `registered` event handler fires exactly once per
+        connection — never again on a hot config/module reload, since that
+        tears down and recreates module instances without touching the IRC
+        session. A module whose startup work is gated behind `registered`
+        must check this in `setup()` too, or it goes dormant after every
+        reload until the next real disconnect/reconnect.
+        """
+        return bool(self._bot.irc.registered)
 
     def get_user(self, nick: str) -> User | None:
         return self._bot.irc.state.get_user(nick)
@@ -92,6 +131,10 @@ class BotAPI:
         if not ch:
             return []
         return [m.nick for m in ch.members.values()]
+
+    def get_own_nick(self) -> str:
+        """The bot's current nick (may differ from the configured one)."""
+        return self._bot.irc.nick
 
     def casefold(self, name: str) -> str:
         return self._bot.irc.isupport.casefold(name)
@@ -148,13 +191,17 @@ class BotAPI:
     def cancel_timer(self, handle_or_name: TimerHandle | str) -> None:
         self._bot.timers.cancel(handle_or_name)
 
-    def mount_route(
+    async def mount_route(
         self,
         method: str,
         path: str,
         handler: Callable[..., Awaitable[Any]],
     ) -> None:
+        # The HTTP server only binds a socket once something actually needs
+        # it — start() is idempotent, so this is a no-op on every mount after
+        # the first.
         self._bot.http.mount(method, path, handler, owner=self.owner)
+        await self._bot.http.start()
 
     def unmount_routes(self) -> None:
         self._bot.http.unmount_owner(self.owner)

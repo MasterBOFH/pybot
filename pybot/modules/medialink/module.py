@@ -219,7 +219,7 @@ class MedialinkModule(Module):
         if webhook.get("enabled", True):
             path = webhook.get("path") or "/livekit/webhook"
             require_auth = bool(webhook.get("verify", True))
-            self.api.mount_route(
+            await self.api.mount_route(
                 "POST",
                 path,
                 make_webhook_handler(
@@ -229,7 +229,7 @@ class MedialinkModule(Module):
                     on_event=self._on_webhook_event,
                 ),
             )
-            self.api.mount_route(
+            await self.api.mount_route(
                 "GET",
                 "/livekit/status",
                 make_status_handler(lambda: self.lk.get_active_rooms() if self.lk else []),
@@ -239,7 +239,7 @@ class MedialinkModule(Module):
             )
 
         if self._shortener_mode == "local":
-            self.api.mount_route("GET", self._shortener_local_path, self._shortlink_handler)
+            await self.api.mount_route("GET", self._shortener_local_path, self._shortlink_handler)
             if not self._shortener_local_base:
                 self.api.log.warning(
                     "medialink: shortener.mode=local but shortener.base_url is empty; "

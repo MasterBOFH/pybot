@@ -114,8 +114,24 @@ def parse_message(line: str) -> Message:
     return Message(tags=tags, prefix=prefix, command=command, params=params, raw=raw)
 
 
+def _sanitize(value: str) -> str:
+    """Drop the characters that could split one outbound line into two.
+
+    Network-derived strings reach the outbound path (server names parsed out of
+    STATS replies become RPING/UPING targets and INVITE nicks). parse_message()
+    tokenizes on spaces, so an embedded CR survives it untouched; re-emitted
+    verbatim, the receiving ircd would treat the tail as a second command.
+    Stripping rather than raising is deliberate: format_line() is called from
+    everywhere, and a new exception type would turn a hardening change into a
+    crash in unrelated callers.
+    """
+    return value.replace("\r", "").replace("\n", "").replace("\x00", "")
+
+
 def format_line(command: str, *params: str, tags: dict[str, Any] | None = None) -> str:
     """Format an outbound IRC line (no CR/LF)."""
+    command = _sanitize(command)
+    params = tuple(_sanitize(p) for p in params)
     parts: list[str] = []
     if tags:
         tag_items = []
