@@ -86,6 +86,7 @@ Receives GitHub webhooks and reports to configured IRC channels.
 1. Set `modules.github.secret` in config
 2. Optionally set a default `channel` for repos not explicitly listed
 3. Use `repos:` to map repository names to channel lists, e.g. `owner/repo: ["#dev", "#github"]`
+   - Optionally add `branches:` per repo to only report that repo's listed branches. Leave it out (or empty) to track every branch. The filter applies to `push` (branch), `pull_request` (base/target branch) and `workflow_run` (head branch); issues, releases and tag pushes are not branch-scoped and always report.
 4. Point GitHub webhook at `http://<host>:8080/github` (or your `path`)
 5. Content type: `application/json`; secret must match
 6. Events: `push` (commits + tags), `release`, `issues`, `pull_request`, `workflow_run` (Actions run completed; configurable; enable the same events on the GitHub webhook)
@@ -102,6 +103,7 @@ modules:
     repos:
       - name: "owner/repo1"
         channels: ["#dev", "#github"]
+        branches: ["main", "release/1.x"]   # only these branches; omit to track all
       - name: "owner/repo2"
         channel: "#release"
 ```

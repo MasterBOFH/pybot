@@ -242,6 +242,27 @@ def format_workflow_run(payload: dict[str, Any], *, emojis: bool = True) -> list
     return lines
 
 
+def event_branch(event: str, payload: dict[str, Any]) -> str | None:
+    """Return the branch an event concerns, or None if it has no branch.
+
+    - push: ``refs/heads/<branch>`` (tag pushes return None)
+    - pull_request: the base (target) branch
+    - workflow_run: the run's head branch
+    Everything else (issues, release, ...) is not branch-scoped.
+    """
+    if event == "push":
+        ref = payload.get("ref") or ""
+        if ref.startswith("refs/heads/"):
+            return ref[len("refs/heads/"):]
+        return None
+    if event == "pull_request":
+        base = ((payload.get("pull_request") or {}).get("base") or {}).get("ref")
+        return base or None
+    if event == "workflow_run":
+        return (payload.get("workflow_run") or {}).get("head_branch") or None
+    return None
+
+
 FORMATTERS = {
     "push": format_push,
     "issues": format_issues,

@@ -6,6 +6,7 @@ import hmac
 import json
 
 import pybot.modules.github.webhook as github_webhook
+from pybot.modules.github.formatters import event_branch
 from pybot.modules.github.module import GitHubModule
 from pybot.modules.github.webhook import make_handler
 
@@ -177,6 +178,169 @@ def test_repo_channels_match_case_insensitively() -> None:
 
     assert mod._repo_channels_for("org/repo1") == ["#dev"]
     assert mod._repo_channels_for("ORG/REPO1") == ["#dev"]
+
+
+def _push_payload(repo: str, ref: str) -> dict:
+    return {
+        "ref": ref,
+        "repository": {"full_name": repo},
+        "pusher": {"name": "alice"},
+        "commits": [{"id": "abcdef123456", "author": {"name": "alice"}, "message": "fix bug"}],
+    }
+
+
+def _run_event(mod: GitHubModule, event: str, payload: dict) -> FakeAPI:
+    api = FakeAPI()
+    mod.api = api
+    mod._emojis = False
+    asyncio.run(mod._on_github_event(event, payload))
+    return api
+
+
+def test_event_branch_extraction() -> None:
+    assert event_branch("push", {"ref": "refs/heads/main"}) == "main"
+    assert event_branch("push", {"ref": "refs/heads/feature/foo"}) == "feature/foo"
+    assert event_branch("push", {"ref": "refs/tags/v1.0"}) is None
+    assert event_branch("pull_request", {"pull_request": {"base": {"ref": "dev"}, "head": {"ref": "x"}}}) == "dev"
+    assert event_branch("workflow_run", {"workflow_run": {"head_branch": "ci"}}) == "ci"
+    assert event_branch("issues", {"issue": {"number": 1}}) is None
+    assert event_branch("release", {"release": {"tag_name": "v1"}}) is None
+
+
+def test_repo_without_branches_tracks_every_branch() -> None:
+    mod = GitHubModule()
+    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"]}]}
+
+    assert mod._repo_branches_for("org/repo1") == []
+    for ref in ("refs/heads/main", "refs/heads/feature/foo"):
+        api = _run_event(mod, "push", _push_payload("org/repo1", ref))
+        assert {ch for ch, _ in api.sent} == {"#dev"}
+
+
+def test_repo_branches_filter_push_events() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "repos": [{"name": "org/repo1", "channels": ["#dev"], "branches": ["main", "release/1.x"]}],
+    }
+
+    assert mod._repo_branches_for("org/repo1") == ["main", "release/1.x"]
+
+    api = _run_event(mod, "push", _push_payload("org/repo1", "refs/heads/main"))
+    assert {ch for ch, _ in api.sent} == {"#dev"}
+
+    api = _run_event(mod, "push", _push_payload("org/repo1", "refs/heads/release/1.x"))
+    assert {ch for ch, _ in api.sent} == {"#dev"}
+
+    api = _run_event(mod, "push", _push_payload("org/repo1", "refs/heads/feature/foo"))
+    assert api.sent == []
+    assert any("not in the tracked branches" in m for m in api.log.messages)
+
+
+def test_repo_branches_single_string_shorthand() -> None:
+    mod = GitHubModule()
+    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"], "branch": "main"}]}
+
+    assert mod._repo_branches_for("org/repo1") == ["main"]
+    api = _run_event(mod, "push", _push_payload("org/repo1", "refs/heads/dev"))
+    assert api.sent == []
+
+
+def test_repo_branches_do_not_filter_tags_issues_or_releases() -> None:
+    mod = GitHubModule()
+    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"], "branches": ["main"]}]}
+
+    tag_push = {
+        "ref": "refs/tags/v1.0",
+        "after": "abcdef123456",
+        "repository": {"full_name": "org/repo1", "html_url": "https://example/org/repo1"},
+        "pusher": {"name": "alice"},
+        "commits": [],
+    }
+    api = _run_event(mod, "push", tag_push)
+    assert {ch for ch, _ in api.sent} == {"#dev"}
+
+    issue = {
+        "action": "opened",
+        "repository": {"full_name": "org/repo1"},
+        "sender": {"login": "alice"},
+        "issue": {"number": 3, "title": "bug", "html_url": "https://example/3"},
+    }
+    api = _run_event(mod, "issues", issue)
+    assert {ch for ch, _ in api.sent} == {"#dev"}
+
+    release = {
+        "action": "published",
+        "repository": {"full_name": "org/repo1"},
+        "sender": {"login": "alice"},
+        "release": {"tag_name": "v1.0", "name": "v1.0", "html_url": "https://example/r/1"},
+    }
+    api = _run_event(mod, "release", release)
+    assert {ch for ch, _ in api.sent} == {"#dev"}
+
+
+def test_repo_branches_filter_pull_request_by_base_branch() -> None:
+    mod = GitHubModule()
+    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"], "branches": ["main"]}]}
+
+    def pr(base: str) -> dict:
+        return {
+            "action": "opened",
+            "repository": {"full_name": "org/repo1"},
+            "sender": {"login": "alice"},
+            "pull_request": {
+                "number": 9,
+                "title": "change",
+                "html_url": "https://example/pr/9",
+                "base": {"ref": base},
+                "head": {"ref": "feature/foo"},
+            },
+        }
+
+    api = _run_event(mod, "pull_request", pr("main"))
+    assert {ch for ch, _ in api.sent} == {"#dev"}
+
+    api = _run_event(mod, "pull_request", pr("dev"))
+    assert api.sent == []
+
+
+def test_repo_branches_filter_workflow_run_by_head_branch() -> None:
+    mod = GitHubModule()
+    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"], "branches": ["main"]}]}
+
+    def run(branch: str) -> dict:
+        return {
+            "action": "completed",
+            "repository": {"full_name": "org/repo1"},
+            "workflow_run": {
+                "name": "CI",
+                "run_number": 7,
+                "head_branch": branch,
+                "conclusion": "success",
+                "html_url": "https://example/runs/7",
+            },
+        }
+
+    api = _run_event(mod, "workflow_run", run("main"))
+    assert {ch for ch, _ in api.sent} == {"#dev"}
+
+    api = _run_event(mod, "workflow_run", run("feature/foo"))
+    assert api.sent == []
+
+
+def test_branch_filter_is_per_repo_and_case_insensitive_on_repo_name() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "repos": [
+            {"name": "Org/Repo1", "channels": ["#dev"], "branches": ["main"]},
+            {"name": "org/repo2", "channels": ["#ops"]},
+        ],
+    }
+
+    api = _run_event(mod, "push", _push_payload("ORG/REPO1", "refs/heads/dev"))
+    assert api.sent == []
+
+    api = _run_event(mod, "push", _push_payload("org/repo2", "refs/heads/dev"))
+    assert {ch for ch, _ in api.sent} == {"#ops"}
 
 
 def test_fake_webhook_handler_accepts_signed_push_event() -> None:
