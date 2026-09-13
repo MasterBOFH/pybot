@@ -139,6 +139,65 @@ class RawLogger:
         self._log.setLevel(level)
 
 
+class ForwardHandler(logging.Handler):
+    """Re-emit a record through the ``pybot`` logger's handlers.
+
+    Third-party libraries log under their own names (``websockets``,
+    ``gardena.smart_system``, …) and some install their own root handler via
+    ``logging.basicConfig``. This handler is the bridge: attach it to a
+    foreign logger (see :func:`adopt_logger`) or to the root logger and the
+    record is formatted by whatever ``setup_logging`` installed. The pybot
+    handlers are looked up per record, so a rehash that rebuilds them is
+    picked up without re-adopting anything.
+
+    ``rename`` rewrites ``record.name`` so the library's output lands in our
+    namespace (``pybot.modules.gardena.ws`` instead of ``websockets.client``).
+    """
+
+    def __init__(self, rename: str | None = None) -> None:
+        super().__init__(logging.NOTSET)
+        self.rename = rename
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.rename:
+            record.name = self.rename
+        handlers = logging.getLogger("pybot").handlers
+        if not handlers and logging.lastResort is not None:
+            handlers = [logging.lastResort]
+        for handler in handlers:
+            if record.levelno >= handler.level:
+                handler.handle(record)
+
+
+def adopt_logger(
+    name: str,
+    *,
+    into: str,
+    level: int | str = logging.DEBUG,
+    filters: tuple[logging.Filter, ...] = (),
+) -> logging.Logger:
+    """Route a third-party logger (and its children) through pybot's output.
+
+    The foreign logger stops propagating to root and gets a single
+    :class:`ForwardHandler` that re-emits under ``into`` (a ``pybot.…`` name).
+    ``level`` is the floor on the *library* side; what actually prints is
+    still gated by the configured pybot level. ``filters`` run on every
+    record before it is forwarded — use them to redact secrets the library
+    logs. Idempotent: calling it again replaces the previous adoption.
+    """
+    logger = logging.getLogger(name)
+    for handler in list(logger.handlers):
+        if isinstance(handler, ForwardHandler):
+            logger.removeHandler(handler)
+    forward = ForwardHandler(rename=into)
+    for f in filters:
+        forward.addFilter(f)
+    logger.addHandler(forward)
+    logger.propagate = False
+    logger.setLevel(_parse_level(level, logging.DEBUG))
+    return logger
+
+
 def _parse_level(value: str | int | None, default: int) -> int:
     if value is None:
         return default
@@ -159,6 +218,18 @@ def setup_logging(config: dict[str, Any] | None = None) -> RawLogger:
     root.handlers.clear()
     root.setLevel(level)
     root.propagate = False
+
+    # Third-party loggers propagate to the real root. Give it a ForwardHandler
+    # so their WARNING+ output uses our format instead of logging.lastResort,
+    # and so a library calling logging.basicConfig() (py-smart-gardena does,
+    # at DEBUG) is a no-op: basicConfig bails out when root already has a
+    # handler, which keeps it from spraying every library's debug output to
+    # stderr in its own format. Root's level is left alone (WARNING).
+    real_root = logging.getLogger()
+    for h in list(real_root.handlers):
+        if isinstance(h, ForwardHandler):
+            real_root.removeHandler(h)
+    real_root.addHandler(ForwardHandler())
 
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(SeverityFormatter(use_color=use_color))

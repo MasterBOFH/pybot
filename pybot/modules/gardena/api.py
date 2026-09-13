@@ -4,14 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
 from typing import Any
 
+from pybot.logging_setup import adopt_logger
 from pybot.modules.gardena.weather import format_weather_snippet
 
 log = logging.getLogger("pybot.modules.gardena")
+
+# py-smart-gardena's TokenManager logs the OAuth access token verbatim at
+# DEBUG ("We got a token : eyJ…"). We forward SDK debug output on purpose, so
+# strip the token before it reaches any handler.
+_TOKEN_RE = re.compile(r"(We got a token\s*:\s*)\S+")
+
+
+class _SDKTokenRedactor(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        redacted = _TOKEN_RE.sub(r"\1<redacted>", msg)
+        if redacted != msg:
+            record.msg = redacted
+            record.args = ()
+        return True
 
 
 def _patch_websockets_closed() -> None:
@@ -65,12 +82,17 @@ class GardenaAPI:
         self.running = False
         self._stop_event = threading.Event()
 
-        # Keep SDK / websocket noise on our module logger at DEBUG
-        for name in ("gardena.smart_system", "websockets"):
-            gl = logging.getLogger(name)
-            gl.handlers.clear()
-            gl.setLevel(logging.DEBUG)
-            gl.propagate = True
+        # Route SDK / websocket logging through pybot's formatter under our
+        # own names. The SDK calls logging.basicConfig() in its constructor;
+        # setup_logging() already neutralises that, and this keeps the lines
+        # it would have printed (plus the websockets keepalive chatter) on
+        # our handlers, gated by the configured pybot level.
+        adopt_logger(
+            "gardena.smart_system",
+            into="pybot.modules.gardena.sdk",
+            filters=(_SDKTokenRedactor(),),
+        )
+        adopt_logger("websockets", into="pybot.modules.gardena.ws")
 
         log.debug("GardenaAPI initialized")
 

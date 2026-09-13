@@ -167,6 +167,15 @@ Constructed by core as `BotAPI(bot, module_name)`. Available as `self.api` after
 | `api.owner` | Owner tag, `module:<name>` (timers, bus, HTTP) |
 | `api.log` | `logging.Logger` → `pybot.modules.<name>` |
 
+Wrapping a third-party library's logger (an SDK, the `websockets` package, …) is done with
+`pybot.logging_setup.adopt_logger(name, into="pybot.modules.<name>.<tag>")`.
+The library's records are renamed and re-emitted through pybot's handlers, so
+they get our timestamp/level/name format and are gated by the configured
+`logging.level`. Pass `filters=(…,)` to redact anything the library logs that
+shouldn't reach stderr (the gardena module strips the SDK's OAuth token this
+way). Root gets a forwarding handler too, so a library calling
+`logging.basicConfig()` no longer installs its own stderr output.
+
 ### Config
 
 | Method | Returns |
