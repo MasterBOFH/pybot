@@ -84,3 +84,72 @@ def test_remove_oidentd_user_config_disabled_is_noop(tmp_path: Path) -> None:
     out.write_text("stale", encoding="utf-8")
     remove_oidentd_user_config({"oidentd": {"enabled": False, "path": str(out)}})
     assert out.exists()
+
+
+def test_bot_writes_on_connected_and_removes_on_registered(tmp_path: Path) -> None:
+    """The reply file exists only between TCP connect and registration."""
+    import asyncio
+    from textwrap import dedent
+
+    from pybot.core.bot import Bot
+
+    out = tmp_path / "oidentd.conf"
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        dedent(
+            f"""\
+            irc:
+              nick: x
+              username: pybot
+              oidentd:
+                enabled: true
+                path: '{out}'
+            """
+        ),
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+
+    async def run() -> None:
+        assert not out.exists()
+        await bot._emit("connected", {"host": "irc.example.net", "port": 6667})
+        assert out.exists()
+        assert 'reply "pybot"' in out.read_text(encoding="utf-8")
+        await bot._emit("registered", {"nick": "x"})
+        assert not out.exists()
+
+    asyncio.run(run())
+
+
+def test_bot_removes_on_disconnect_before_registration(tmp_path: Path) -> None:
+    import asyncio
+    from textwrap import dedent
+
+    from pybot.core.bot import Bot
+
+    out = tmp_path / "oidentd.conf"
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        dedent(
+            f"""\
+            irc:
+              nick: x
+              username: pybot
+              reconnect:
+                enabled: false
+              oidentd:
+                enabled: true
+                path: '{out}'
+            """
+        ),
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+
+    async def run() -> None:
+        await bot._emit("connected", {"host": "irc.example.net", "port": 6667})
+        assert out.exists()
+        await bot._emit("disconnect", {"error": "reset"})
+        assert not out.exists()
+
+    asyncio.run(run())

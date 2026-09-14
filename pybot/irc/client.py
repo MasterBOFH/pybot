@@ -173,6 +173,9 @@ class IRCClient:
         self.nick = self.desired_nick
         self.conn.set_handlers(self._on_line, self._on_disconnect)
         await self.conn.connect()
+        # Fires between the socket coming up and the first byte we send: the
+        # ircd's ident query happens in this window.
+        await self.emit("connected", host=self.conn.host, port=self.conn.port)
         await self.caps.start()
         await send_registration(
             self,

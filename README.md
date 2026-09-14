@@ -60,6 +60,10 @@ either `irc.oidentd.reply` or `irc.username`.
 Optional `irc.oidentd.server_host` / `irc.oidentd.server_port` scope the rule to
 your IRC server; otherwise a global rule is written.
 
+The file only exists for the ident-query window: it is written the moment the
+TCP connection to the ircd is up and deleted as soon as registration completes
+(or the connection drops first).
+
 Your system oidentd policy must permit spoofed replies for the bot user, e.g. in
 the system oidentd config by allowing the `spoof` capability for that account.
 

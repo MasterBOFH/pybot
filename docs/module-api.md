@@ -339,6 +339,7 @@ keys depend on the event.
 
 | Event | Typical keys |
 |-------|----------------|
+| `connected` | `host`, `port` (TCP/TLS connection is up; nothing sent yet) |
 | `registered` | `nick` |
 | `disconnect` | `error` (str or None) |
 | `isupport` | `isupport` (ISupport object) |

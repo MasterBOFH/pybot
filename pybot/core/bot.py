@@ -132,7 +132,12 @@ class Bot:
         return bool(self._reconnect_cfg().get("enabled", True))
 
     async def _emit(self, event: str, payload: dict[str, Any]) -> None:
-        if event == "disconnect":
+        # The oidentd reply file lives only for the ident-query window: it is
+        # written the moment the TCP connection is up and removed as soon as
+        # the ircd has accepted registration (or the connection is lost first).
+        if event == "connected":
+            write_oidentd_user_config(self.config.get("irc") or {})
+        elif event == "disconnect":
             remove_oidentd_user_config(self.config.get("irc") or {})
             await self._on_irc_disconnect(payload)
         elif event == "registered":
@@ -160,7 +165,6 @@ class Bot:
         except (NotImplementedError, AttributeError):
             pass
 
-        write_oidentd_user_config(self.config.get("irc") or {})
         # No eager http.start() here: the server only binds a socket once a
         # module actually mounts a route (see BotAPI.mount_route) — most
         # deployments run no webhook module at all, so there's no reason to
@@ -276,7 +280,6 @@ class Bot:
         self.config = load_config(self.config_path)
         setup_logging(self.config.get("logging"))
         irc_cfg = self.config.get("irc") or {}
-        write_oidentd_user_config(irc_cfg)
         self.irc.config = irc_cfg
         self._rebuild_channel_registry()
         flood = irc_cfg.get("flood") or {}
@@ -376,7 +379,6 @@ class Bot:
             )
             # Preserve dynamic channel subscriptions across reconnects.
             self.irc.set_channels_to_join(self._configured_join_channels())
-            write_oidentd_user_config(self.config.get("irc") or {})
             await self.irc.connect()
         except Exception:
             # Caller (auto) may reschedule; manual raises after schedule
