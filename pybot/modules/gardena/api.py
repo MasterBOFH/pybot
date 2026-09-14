@@ -15,6 +15,11 @@ from pybot.modules.gardena.weather import format_weather_snippet
 
 log = logging.getLogger("pybot.modules.gardena")
 
+# Activities reported while the mower sits in its base. A docked mower flaps
+# between OK_CHARGING and PARKED_TIMER as it tops up, so transitions within
+# this set are only announced once per docking session.
+_DOCKED_ACTIVITIES = frozenset({"ok_charging", "parked_timer", "parked_park_selected"})
+
 # py-smart-gardena's TokenManager logs the OAuth access token verbatim at
 # DEBUG ("We got a token : eyJ…"). We forward SDK debug output on purpose, so
 # strip the token before it reaches any handler.
@@ -78,6 +83,8 @@ class GardenaAPI:
         self.device_cache: dict[str, dict[str, Any]] = {}
         self.mowing_start_times: dict[str, float] = {}
         self.pause_times: dict[str, float] = {}
+        # Device IDs whose "charging" notice was already sent this docking session.
+        self.charge_announced: set[str] = set()
         self.location_id: str | None = None
         self.running = False
         self._stop_event = threading.Event()
@@ -216,8 +223,24 @@ class GardenaAPI:
             weather_info = self._weather_suffix()
             activity_lower = (device.activity or "").lower()
             old_activity_lower = (old_activity or "").lower()
+            docked_flap = (
+                activity_lower in _DOCKED_ACTIVITIES
+                and old_activity_lower in _DOCKED_ACTIVITIES
+            )
+            if activity_lower not in _DOCKED_ACTIVITIES:
+                self.charge_announced.discard(device.id)
 
-            if (
+            if docked_flap and (
+                activity_lower != "ok_charging" or device.id in self.charge_announced
+            ):
+                # Charging top-up cycle while parked: not worth a channel line.
+                log.debug(
+                    "%s docked activity %s -> %s (suppressed)",
+                    device.name,
+                    old_activity,
+                    device.activity,
+                )
+            elif (
                 activity_lower == "parked_timer"
                 and old_activity_lower
                 not in ("", "none", "ok_charging", "parked_park_selected")
@@ -272,6 +295,7 @@ class GardenaAPI:
                     f"{pause_duration_msg}!{weather_info}",
                 )
             elif activity_lower == "ok_charging":
+                self.charge_announced.add(device.id)
                 duration_msg = ""
                 if device.id in self.mowing_start_times:
                     duration = time.time() - self.mowing_start_times.pop(device.id)

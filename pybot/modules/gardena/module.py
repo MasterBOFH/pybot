@@ -38,6 +38,7 @@ class GardenaModule(Module):
             "device_cache": self.api_client.device_cache.copy(),
             "mowing_start_times": self.api_client.mowing_start_times.copy(),
             "pause_times": self.api_client.pause_times.copy(),
+            "charge_announced": sorted(self.api_client.charge_announced),
             "location_id": self.api_client.location_id,
         }
 
@@ -47,6 +48,7 @@ class GardenaModule(Module):
         self.api_client.device_cache = state.get("device_cache", {}).copy()
         self.api_client.mowing_start_times = state.get("mowing_start_times", {}).copy()
         self.api_client.pause_times = state.get("pause_times", {}).copy()
+        self.api_client.charge_announced = set(state.get("charge_announced", ()))
         if state.get("location_id") is not None:
             self.api_client.location_id = state["location_id"]
 
