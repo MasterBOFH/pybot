@@ -239,15 +239,19 @@ class Bot:
         for name in list(self.modules):
             await self.unload_module(name)
 
-    async def reload_module(self, name: str) -> None:
+    async def reload_module(self, name: str) -> bool:
+        """Reload code for *name*. Returns False when it is disabled in config."""
         log.info("Reloading module %s", name)
         old = self.modules.get(name)
         state = old.get_state() if old else {}
         await self.unload_module(name)
         reload_module_by_name(name)
         cfg = self.module_config(name)
-        if cfg.get("enabled", True):
-            await self.load_module(name, state=state)
+        if not cfg.get("enabled", True):
+            log.info("Module %s is disabled in config; not loading", name)
+            return False
+        await self.load_module(name, state=state)
+        return True
 
     async def reload_modules(self) -> None:
         for name in list(self.modules):
@@ -481,8 +485,13 @@ class Bot:
                     await self.reload_modules()
                     await reply("reloaded modules")
                 elif what == "module" and len(args) >= 2:
-                    await self.reload_module(args[1])
-                    await reply(f"reloaded module {args[1]}")
+                    if await self.reload_module(args[1]):
+                        await reply(f"reloaded module {args[1]}")
+                    else:
+                        await reply(
+                            f"module {args[1]} is disabled in config; not loaded "
+                            "(enable it and run 'reload config')"
+                        )
                 elif what == "config":
                     await self.reload_config_and_modules()
                     await reply("reloaded config + modules")
