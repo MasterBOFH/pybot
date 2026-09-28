@@ -25,33 +25,37 @@ cleanup() {
 }
 trap cleanup EXIT
 
+PYTHON="${ROOT}/.venv/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON=python3
+fi
+
 echo "==> Waiting for ircd matrix ports..."
-python3 - <<PY
-import socket, time, sys
-host = "${PYBOT_IRCD_MATRIX_HOST}"
-ports = {"ircd-irc2": 4440, "unreal4": 4441, "hybrid": 4442, "ircu2": 4443,
-         "bahamut": 4444, "ngircd": 4445, "charybdis": 4447, "inspircd": 4448}
-deadline = time.time() + 180
-pending = dict(ports)
+"$PYTHON" - <<'PY'
+import os, socket, sys, time
+from tests.conftest import IRCD_MATRIX_SERVERS
+host = os.environ["PYBOT_IRCD_MATRIX_HOST"]
+pending = {
+    (name, port)
+    for name, ports in IRCD_MATRIX_SERVERS.items()
+    for port in ports
+    if port is not None
+}
+deadline = time.time() + 120
 while pending and time.time() < deadline:
-    for name, port in list(pending.items()):
+    for name, port in sorted(pending):
         try:
             with socket.create_connection((host, port), timeout=1):
                 print(f"{name} ready at {host}:{port}")
-                del pending[name]
+                pending.discard((name, port))
         except OSError:
             pass
     if pending:
         time.sleep(0.5)
 if pending:
-    print(f"timeout waiting for: {pending}", file=sys.stderr)
+    print(f"timeout waiting for: {sorted(pending)}", file=sys.stderr)
     sys.exit(1)
 PY
-
-PYTHON="${ROOT}/.venv/bin/python"
-if [[ ! -x "$PYTHON" ]]; then
-  PYTHON=python3
-fi
 
 echo "==> Running ircd matrix interop tests"
 "$PYTHON" -m pytest tests/integration/test_ircd_matrix.py --ircd-matrix -v

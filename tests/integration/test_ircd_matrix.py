@@ -1,14 +1,18 @@
 """Parser interop across the ircd matrix (docker/ircd-matrix).
 
-Drives the real IRCClient against several IRCd implementations
-(ircd-irc2, unreal4, hybrid, ircu2, bahamut, ngircd, charybdis, inspircd)
-to catch parsing/state assumptions that only ircu2 (the main integration
-harness) happens to satisfy. Registration, ISUPPORT, JOIN/NAMES, WHO/WHOX
-(whichever the server advertises — the two use different reply numerics
-and field layouts), PRIVMSG, KICK, NICK, PART, and QUIT are asserted for
-every server; MODE +o and KICK are checked best-effort since op-on-create
-and mode-broadcast timing vary across implementations that old, quirky
-IRCds ship.
+Drives the real IRCClient against ten IRCd implementations (images from
+https://github.com/MasterBOFH/test-servers: ircd-irc2, UnrealIRCd 6,
+ircd-hybrid 8, ircu2, Bahamut, ngIRCd, ircd-ratbox, Solanum, InspIRCd 4,
+Ergo) to catch parsing/state assumptions that only ircu2 (the main
+integration harness) happens to satisfy. Registration, ISUPPORT,
+JOIN/NAMES, WHO/WHOX (whichever the server advertises — the two use
+different reply numerics and field layouts), PRIVMSG, MODE +o, KICK, NICK,
+PART, and QUIT are asserted for every server, over plaintext and — where
+the server has native TLS — over TLS verified against the test CA.
+
+The images guarantee first-joiner-gets-ops, sub-second registration (no
+ident/DNS lookups) and no connection throttling, so every step is a hard
+assertion with short timeouts.
 
 Requires `docker compose -f docker/ircd-matrix/docker-compose.yml up -d`
 (see scripts/run-ircd-matrix.sh) and `pytest --ircd-matrix`.
@@ -16,6 +20,7 @@ Requires `docker compose -f docker/ircd-matrix/docker-compose.yml up -d`
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
@@ -24,7 +29,7 @@ import pytest
 from pybot.core.timers import TimerEngine
 from pybot.irc.client import IRCClient
 from pybot.logging_setup import setup_logging
-from tests.conftest import IRCD_MATRIX_SERVERS
+from tests.conftest import IRCD_MATRIX_CA, IRCD_MATRIX_SERVERS
 from tests.harness.fake_client import FakeClient
 from tests.harness.wait import wait_port, wait_until
 
@@ -37,7 +42,9 @@ def _uniq(prefix: str) -> str:
     return f"{prefix}{uuid.uuid4().hex[:6]}"
 
 
-async def _make_bot(host: str, port: int, timers: TimerEngine) -> tuple[IRCClient, list]:
+async def _make_bot(
+    host: str, port: int, timers: TimerEngine, *, tls: bool
+) -> tuple[IRCClient, list]:
     events: list[tuple[str, dict]] = []
 
     async def emit(event: str, payload: dict) -> None:
@@ -47,7 +54,9 @@ async def _make_bot(host: str, port: int, timers: TimerEngine) -> tuple[IRCClien
         {
             "host": host,
             "port": port,
-            "tls": False,
+            "tls": tls,
+            "tls_verify": True,
+            "tls_ca_file": IRCD_MATRIX_CA if tls else None,
             "nick": _uniq("bot"),
             "username": "pybot",
             "realname": "pybot matrix test",
@@ -60,40 +69,28 @@ async def _make_bot(host: str, port: int, timers: TimerEngine) -> tuple[IRCClien
         timers=timers,
     )
     await client.connect()
-    # Some of these images run ident/reverse-DNS lookups on connect and only
-    # give up after their own internal timeout (observed: ircd-irc2 ~70s,
-    # bahamut ~38s) before completing registration.
-    await wait_until(lambda: client.registered, timeout=90, desc="bot registered")
+    await wait_until(lambda: client.registered, timeout=15, desc="bot registered")
     return client, events
 
 
 def _matrix_params() -> list:
     params = []
-    for name in sorted(IRCD_MATRIX_SERVERS):
-        marks = []
-        if name == "charybdis":
-            # irccom/charybdis:latest stops accept()-ing new connections
-            # shortly after startup (TCP backlog fills, Recv-Q never
-            # drains) — reproduced by hand outside pytest, and a container
-            # restart doesn't recover it (stale pidfile refuses relaunch).
-            # This is a bug in that published image, not in pybot's parser.
-            marks.append(
-                pytest.mark.xfail(
-                    reason="irccom/charybdis:latest stops accepting connections "
-                    "after startup; known-broken image, not a pybot bug",
-                    strict=False,
-                )
-            )
-        params.append(pytest.param(name, marks=marks))
+    for name, ports in sorted(IRCD_MATRIX_SERVERS.items()):
+        params.append(pytest.param(name, False, id=f"{name}-plain"))
+        if ports.tls is not None:
+            params.append(pytest.param(name, True, id=f"{name}-tls"))
     return params
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server_name", _matrix_params())
-async def test_ircd_matrix_interop(server_name: str, ircd_matrix_host: str) -> None:
+@pytest.mark.parametrize(("server_name", "tls"), _matrix_params())
+async def test_ircd_matrix_interop(server_name: str, tls: bool, ircd_matrix_host: str) -> None:
     host = ircd_matrix_host
-    port = IRCD_MATRIX_SERVERS[server_name]
-    await wait_port(host, port, timeout=90.0)
+    ports = IRCD_MATRIX_SERVERS[server_name]
+    # Peers stay on plaintext; only the bot's own transport varies.
+    bot_port = ports.tls if tls else ports.plain
+    port = ports.plain
+    await wait_port(host, bot_port, timeout=60.0)
 
     setup_logging({"level": "WARNING", "raw_enabled": False})
     timers = TimerEngine()
@@ -104,26 +101,18 @@ async def test_ircd_matrix_interop(server_name: str, ircd_matrix_host: str) -> N
     target: FakeClient | None = None
     victim: FakeClient | None = None
     try:
-        bot, events = await _make_bot(host, port, timers)
+        bot, events = await _make_bot(host, bot_port, timers, tls=tls)
 
         op = FakeClient(host=host, port=port, nick=_uniq("op"))
         target = FakeClient(host=host, port=port, nick=_uniq("tg"))
         victim = FakeClient(host=host, port=port, nick=_uniq("vc"))
-        # Same ident/reverse-DNS delay as the bot (see _make_bot) applies
-        # here. Connecting these sequentially rather than concurrently is
-        # deliberate: unreal4 reproducibly hangs (not just slows down) when
-        # 4 clients connect at once — the same class of "stops servicing
-        # new connections under load" issue observed on charybdis, just
-        # triggered by concurrency here instead of happening outright.
-        await op.connect(timeout=90)
-        await target.connect(timeout=90)
-        await victim.connect(timeout=90)
+        await asyncio.gather(op.connect(), target.connect(), victim.connect())
 
         # 005 ISUPPORT must have been parsed into usable tokens.
         assert bot.isupport.casemapping, f"{server_name}: no CASEMAPPING in 005"
         assert bot.isupport.prefix_modes, f"{server_name}: no PREFIX in 005"
 
-        # First joiner creates the channel (op on most servers).
+        # First joiner creates the channel and gets ops (image guarantee).
         await op.join(channel)
         await bot.join(channel)
         await wait_until(
@@ -182,9 +171,13 @@ async def test_ircd_matrix_interop(server_name: str, ircd_matrix_host: str) -> N
         assert priv["nick"].lower() == op.nick.lower()
         assert priv["target"].lower() == channel.lower()
 
-        # Best-effort: MODE +o propagation. Op-on-create and mode-broadcast
-        # timing vary enough across old IRCds that this is a warning, not a
-        # hard failure — the parse path still gets exercised either way.
+        # The bot's NAMES/JOIN journal must record the channel creator's op.
+        op_member = bot.state.get_channel(channel).members.get(bot.isupport.casefold(op.nick))
+        assert op_member is not None and "o" in op_member.prefixes, (
+            f"{server_name}: creator op not tracked: {op_member}"
+        )
+
+        # MODE +o propagation into member prefixes.
         await op.mode(channel, "+o", target.nick)
 
         def target_is_op() -> bool:
@@ -194,14 +187,9 @@ async def test_ircd_matrix_interop(server_name: str, ircd_matrix_host: str) -> N
             member = c.members.get(bot.isupport.casefold(target.nick))
             return bool(member and "o" in member.prefixes)
 
-        try:
-            await wait_until(target_is_op, timeout=10, desc="target opped")
-        except TimeoutError:
-            log.warning("%s: MODE +o not observed within timeout (non-fatal)", server_name)
+        await wait_until(target_is_op, timeout=10, desc=f"{server_name}: target opped")
 
-        # Best-effort: KICK propagation and its event payload. Relies on op
-        # actually holding channel ops (first-joiner-is-op is a convention,
-        # not a guarantee), so this is a warning, not a hard failure. Kicks
+        # KICK propagation and its event payload. Kicks
         # `victim` specifically (not `target`) — once a user leaves the
         # only channel it shares with the bot, the bot's state prunes that
         # user's global record (real IRC visibility semantics: you stop
@@ -215,21 +203,18 @@ async def test_ircd_matrix_interop(server_name: str, ircd_matrix_host: str) -> N
             c = bot.state.get_channel(channel)
             return bool(c) and bot.isupport.casefold(victim.nick) not in c.members
 
-        try:
-            await wait_until(victim_kicked, timeout=10, desc="victim kicked")
-            kick = next(
-                (
-                    p
-                    for e, p in events[kick_before:]
-                    if e == "user_kick" and p.get("nick", "").lower() == victim.nick.lower()
-                ),
-                None,
-            )
-            assert kick is not None, f"{server_name}: no user_kick event for KICK"
-            assert kick["kicker"].lower() == op.nick.lower()
-            assert kick["channel"].lower() == channel.lower()
-        except TimeoutError:
-            log.warning("%s: KICK not observed within timeout (non-fatal)", server_name)
+        await wait_until(victim_kicked, timeout=10, desc=f"{server_name}: victim kicked")
+        kick = next(
+            (
+                p
+                for e, p in events[kick_before:]
+                if e == "user_kick" and p.get("nick", "").lower() == victim.nick.lower()
+            ),
+            None,
+        )
+        assert kick is not None, f"{server_name}: no user_kick event for KICK"
+        assert kick["kicker"].lower() == op.nick.lower()
+        assert kick["channel"].lower() == channel.lower()
 
         # NICK propagation.
         new_nick = _uniq("n")

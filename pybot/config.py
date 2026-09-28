@@ -14,6 +14,7 @@ DEFAULTS: dict[str, Any] = {
         "port": 6667,
         "tls": False,
         "tls_verify": True,
+        "tls_ca_file": None,  # PEM CA bundle to trust instead of the system store
         "bindhost": None,  # local IP/hostname to bind outbound IRC socket
         "nick": "pybot",
         "altnick": None,

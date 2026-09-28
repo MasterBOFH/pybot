@@ -46,3 +46,24 @@ jobs:
 
       - name: Run harness tests
         run: ./scripts/run-harness.sh
+
+  ircd-matrix:
+    name: IRCd matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run ircd matrix tests
+        run: ./scripts/run-ircd-matrix.sh

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -66,17 +68,29 @@ async def irc_server(irc_host: str, irc_port: int):
     return irc_host, irc_port
 
 
-# name -> port, matching docker/ircd-matrix/docker-compose.yml
+class MatrixServer(NamedTuple):
+    plain: int
+    tls: int | None  # None: this ircd version has no native TLS
+
+
+# compose service name -> ports, matching docker/ircd-matrix/docker-compose.yml
+# (also read by scripts/run-ircd-matrix.sh to wait for the ports).
 IRCD_MATRIX_SERVERS = {
-    "ircd-irc2": 4440,
-    "unreal4": 4441,
-    "hybrid": 4442,
-    "ircu2": 4443,
-    "bahamut": 4444,
-    "ngircd": 4445,
-    "charybdis": 4447,
-    "inspircd": 4448,
+    "ircd-irc2": MatrixServer(4440, None),
+    "unrealircd-6": MatrixServer(4441, 5551),
+    "ircd-hybrid-8": MatrixServer(4442, 5552),
+    "ircu2": MatrixServer(4443, None),
+    "bahamut": MatrixServer(4444, 5554),
+    "ngircd": MatrixServer(4445, 5555),
+    "ircd-ratbox": MatrixServer(4446, 5556),
+    "solanum": MatrixServer(4447, 5557),
+    "inspircd-4": MatrixServer(4448, 5558),
+    "ergo": MatrixServer(4449, 5559),
 }
+
+# Test CA that signs every matrix server's TLS certificate (valid for
+# 127.0.0.1 and localhost), copied from MasterBOFH/test-servers certs/.
+IRCD_MATRIX_CA = str(Path(__file__).resolve().parent.parent / "docker/ircd-matrix/certs/ca.crt")
 
 
 @pytest.fixture(scope="session")

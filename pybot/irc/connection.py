@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import ssl
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
@@ -27,6 +28,7 @@ class Connection:
         *,
         tls: bool = False,
         tls_verify: bool = True,
+        tls_ca_file: str | None = None,
         bindhost: str | None = None,
         flood: TokenBucket | None = None,
         raw: RawLogger | None = None,
@@ -35,6 +37,7 @@ class Connection:
         self.port = port
         self.tls = tls
         self.tls_verify = tls_verify
+        self.tls_ca_file = (tls_ca_file or "").strip() or None
         self.bindhost = (bindhost or "").strip() or None
         self.flood = flood or TokenBucket()
         self.raw = raw or RawLogger()
@@ -56,7 +59,11 @@ class Connection:
     async def connect(self) -> None:
         ssl_ctx: ssl.SSLContext | bool | None = None
         if self.tls:
-            ssl_ctx = ssl.create_default_context()
+            # tls_ca_file replaces the system trust store (e.g. a private or
+            # test CA); without it, the system store is used.
+            ssl_ctx = ssl.create_default_context(
+                cafile=os.path.expanduser(self.tls_ca_file) if self.tls_ca_file else None
+            )
             if not self.tls_verify:
                 ssl_ctx.check_hostname = False
                 ssl_ctx.verify_mode = ssl.CERT_NONE

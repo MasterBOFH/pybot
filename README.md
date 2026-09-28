@@ -201,9 +201,21 @@ docker compose -f docker/docker-compose.yml down
 
 Environment overrides: `PYBOT_IRC_HOST`, `PYBOT_IRC_PORT`. Set `PYBOT_KEEP_IRCU=1` with the script to leave the server running after tests.
 
+### IRCd matrix (Docker, 10 ircds)
+
+Runs the same client checks against ircd-irc2, UnrealIRCd 6, ircd-hybrid 8,
+ircu2, Bahamut, ngIRCd, ircd-ratbox, Solanum, InspIRCd 4 and Ergo (images
+from [MasterBOFH/test-servers](https://github.com/MasterBOFH/test-servers)),
+over plaintext and verified TLS. See [`tests/README.md`](tests/README.md).
+
+```bash
+./scripts/run-ircd-matrix.sh
+```
+
 Harness layout:
 
 - [`docker/ircu2/`](docker/ircu2/) — Dockerfile + minimal `ircd.conf`
+- [`docker/ircd-matrix/`](docker/ircd-matrix/) — compose file for the 10-ircd matrix + test CA
 - [`tests/harness/fake_client.py`](tests/harness/fake_client.py) — asyncio fake IRC clients
 - [`tests/integration/`](tests/integration/) — live-server scenarios (skipped unless `--integration`)
 

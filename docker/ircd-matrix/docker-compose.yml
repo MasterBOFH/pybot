@@ -3,49 +3,43 @@
 #   docker compose -f docker/ircd-matrix/docker-compose.yml up -d --pull missing
 #   docker compose -f docker/ircd-matrix/docker-compose.yml down
 #
-# Prebuilt images from the irccom project (https://github.com/irccom); most
-# are amd64-only, so non-amd64 hosts need QEMU/Rosetta emulation for docker.
+# Prebuilt images from https://github.com/MasterBOFH/test-servers, each built
+# from a pinned upstream release. Every image: first joiner gets ops, opers
+# alice/password and daniel/password, no ident/DNS/throttling, 44xx plaintext
+# and 55xx TLS (cert signed by certs/ca.crt, valid for 127.0.0.1/localhost).
+# Keep ports in sync with IRCD_MATRIX_SERVERS in tests/conftest.py.
+#
 # This is separate from docker/docker-compose.yml (the single self-built
 # ircu2 used by the main integration suite) so the two harnesses never
 # collide and can run side by side.
 services:
   ircd-irc2:
-    image: irccom/ircd-irc2:latest
-    platform: linux/amd64
-    ports:
-      - "127.0.0.1:4440:4440"
-  unreal4:
-    image: irccom/unreal4:latest
-    platform: linux/amd64
-    ports:
-      - "127.0.0.1:4441:4441"
-  hybrid:
-    image: irccom/ircd-hybrid:latest
-    platform: linux/amd64
-    ports:
-      - "127.0.0.1:4442:4442"
+    image: ghcr.io/masterbofh/test-servers/ircd-irc2:latest
+    ports: ["127.0.0.1:4440:4440"]
+  unrealircd-6:
+    image: ghcr.io/masterbofh/test-servers/unrealircd-6:latest
+    ports: ["127.0.0.1:4441:4441", "127.0.0.1:5551:5551"]
+  ircd-hybrid-8:
+    image: ghcr.io/masterbofh/test-servers/ircd-hybrid-8:latest
+    ports: ["127.0.0.1:4442:4442", "127.0.0.1:5552:5552"]
   ircu2:
-    image: irccom/ircu2:latest
-    platform: linux/amd64
-    ports:
-      - "127.0.0.1:4443:4443"
+    image: ghcr.io/masterbofh/test-servers/ircu2:latest
+    ports: ["127.0.0.1:4443:4443"]
   bahamut:
-    image: irccom/bahamut:latest
-    platform: linux/amd64
-    ports:
-      - "127.0.0.1:4444:4444"
+    image: ghcr.io/masterbofh/test-servers/bahamut:latest
+    ports: ["127.0.0.1:4444:4444", "127.0.0.1:5554:5554"]
   ngircd:
-    image: irccom/ngircd:latest
-    platform: linux/amd64
-    ports:
-      - "127.0.0.1:4445:4445"
-  charybdis:
-    image: irccom/charybdis:latest
-    platform: linux/amd64
-    ports:
-      - "127.0.0.1:4447:4447"
-  inspircd:
-    image: irccom/inspircd:latest
-    platform: linux/amd64
-    ports:
-      - "127.0.0.1:4448:4448"
+    image: ghcr.io/masterbofh/test-servers/ngircd:latest
+    ports: ["127.0.0.1:4445:4445", "127.0.0.1:5555:5555"]
+  ircd-ratbox:
+    image: ghcr.io/masterbofh/test-servers/ircd-ratbox:latest
+    ports: ["127.0.0.1:4446:4446", "127.0.0.1:5556:5556"]
+  solanum:
+    image: ghcr.io/masterbofh/test-servers/solanum:latest
+    ports: ["127.0.0.1:4447:4447", "127.0.0.1:5557:5557"]
+  inspircd-4:
+    image: ghcr.io/masterbofh/test-servers/inspircd-4:latest
+    ports: ["127.0.0.1:4448:4448", "127.0.0.1:5558:5558"]
+  ergo:
+    image: ghcr.io/masterbofh/test-servers/ergo:latest
+    ports: ["127.0.0.1:4449:4449", "127.0.0.1:5559:5559"]

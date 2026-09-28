@@ -3,6 +3,7 @@ irc:
   port: 6697
   tls: true
   tls_verify: true
+  # tls_ca_file: /path/to/ca.pem  # optional: trust this CA instead of the system store
   # bindhost: "192.168.1.100"  # optional local address for outbound IRC
   nick: pybot
   altnick: pybot_          # tried if primary nick is taken

@@ -81,6 +81,7 @@ class IRCClient:
             int(config["port"]),
             tls=bool(config.get("tls")),
             tls_verify=bool(config.get("tls_verify", True)),
+            tls_ca_file=config.get("tls_ca_file") or None,
             bindhost=config.get("bindhost") or None,
             flood=self.flood,
             raw=self.raw,
