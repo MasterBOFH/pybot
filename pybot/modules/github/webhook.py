@@ -27,7 +27,7 @@ def verify_signature(secret: str, body: bytes, signature_header: str | None) -> 
 def make_handler(
     *,
     secret: str,
-    allowed_events: set[str],
+    allowed_events: Callable[[], set[str]],
     on_event: Callable[[str, dict[str, Any]], Awaitable[None]],
 ) -> Callable[[web.Request], Awaitable[web.StreamResponse]]:
     async def handle(request: web.Request) -> web.StreamResponse:
@@ -55,8 +55,8 @@ def make_handler(
             log.debug("GitHub webhook ping received")
             return web.json_response({"ok": True, "pong": True})
 
-        if allowed_events and event not in allowed_events:
-            log.debug("Ignoring GitHub event %s (not enabled in config)", event)
+        if event not in allowed_events():
+            log.debug("Ignoring GitHub event %s (no channel subscribes to it)", event)
             return web.json_response({"ok": True, "ignored": event})
 
         log.debug("Accepted GitHub webhook event %s", event)

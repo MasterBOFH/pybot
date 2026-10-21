@@ -58,27 +58,30 @@ modules:
     enabled: true
     path: /github
     secret: whsec_change_me
-    channel: "#dev"         # default channel for repos not explicitly listed below
     emojis: true             # set false if your clients hate unicode
-    events:
+    events:                  # default for channels that don't list their own
       - push                 # commits + tag pushes (formatted separately)
-      - release              # GitHub Release published (enable in webhook too)
       - issues
       - pull_request
-      - workflow_run         # Actions run completed (reports success/failure/etc.)
-    repos:
+    # Enable every event any channel uses on the GitHub webhook too. Available:
+    # push, release (Release published), issues, pull_request,
+    # workflow_run (Actions run completed: success/failure/etc.)
+    channels:
+      - name: "#dev"
+        repos:
+          - "owner/repo1"
+          - "owner/repo2"
+        events: [push, pull_request, workflow_run]
+      - name: "#release"
+        repos: "owner/repo2"   # single repo shorthand also works
+        events: [release]
+      - name: "#github"
+        repos: "*"             # every repo that sends webhooks; uses default events
+    repos:                   # repo-level settings (optional)
       - name: "owner/repo1"
-        channels:
-          - "#dev"
-          - "#github"
         branches:            # only report these branches (push/pull_request/workflow_run);
           - main             # omit or leave empty to track every branch
           - "release/1.x"
-      - name: "owner/repo2"
-        channels:
-          - "#release"
-      # - name: "owner/repo3"
-      #   channel: "#ops"    # single channel shorthand also works
 
   gardena:
     enabled: false

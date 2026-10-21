@@ -81,14 +81,15 @@ def test_module_setup_registers_repo_channels_with_bot_api(tmp_path: Path) -> No
             modules:
               github:
                 enabled: true
-                channel: '#dev'
-                repos:
-                  - name: 'org/repo1'
-                    channels:
-                      - '#ops'
-                      - '#github'
-                  - name: 'org/repo2'
-                    channel: '#release'
+                channels:
+                  - name: '#dev'
+                    repos: '*'
+                  - name: '#ops'
+                    repos: ['org/repo1']
+                  - name: '#github'
+                    repos: ['org/repo1']
+                  - name: '#release'
+                    repos: ['org/repo2']
             """
         ),
         encoding="utf-8",
@@ -97,10 +98,11 @@ def test_module_setup_registers_repo_channels_with_bot_api(tmp_path: Path) -> No
     bot.http.start = AsyncMock()  # type: ignore[method-assign]
     mod = __import__("pybot.modules.github.module", fromlist=["GitHubModule"]).GitHubModule()
     mod.config = {
-        "channel": "#dev",
-        "repos": [
-            {"name": "org/repo1", "channels": ["#ops", "#github"]},
-            {"name": "org/repo2", "channel": "#release"},
+        "channels": [
+            {"name": "#dev", "repos": "*"},
+            {"name": "#ops", "repos": ["org/repo1"]},
+            {"name": "#github", "repos": ["org/repo1"]},
+            {"name": "#release", "repos": ["org/repo2"]},
         ],
     }
 

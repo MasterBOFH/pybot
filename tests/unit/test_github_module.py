@@ -10,6 +10,8 @@ from pybot.modules.github.formatters import event_branch
 from pybot.modules.github.module import GitHubModule
 from pybot.modules.github.webhook import make_handler
 
+ALL_EVENTS = ["push", "issues", "pull_request", "release", "workflow_run"]
+
 
 class CapturingLogger:
     def __init__(self) -> None:
@@ -32,152 +34,16 @@ class FakeAPI:
     def __init__(self) -> None:
         self.log = CapturingLogger()
         self.sent: list[tuple[str, str]] = []
+        self.registered: list[str] = []
 
     async def privmsg(self, channel: str, text: str) -> None:
         self.sent.append((channel, text))
 
+    def register_channels(self, channels: list[str]) -> None:
+        self.registered = list(channels)
 
-def test_repo_channels_mapping_uses_default_when_missing() -> None:
-    mod = GitHubModule()
-    mod.config = {
-        "channel": "#default",
-        "repos": [
-            {"name": "org/repo1", "channels": ["#dev", "#ops"]},
-            {"name": "org/repo2", "channels": ["#release"]},
-        ],
-    }
-
-    assert mod._repo_channels_for("org/repo1") == ["#dev", "#ops"]
-    assert mod._repo_channels_for("org/repo2") == ["#release"]
-    assert mod._repo_channels_for("org/other") == ["#default"]
-
-
-def test_unconfigured_repo_has_no_implicit_default_channels() -> None:
-    mod = GitHubModule()
-    mod.config = {
-        "repos": [{"name": "org/repo1", "channels": ["#dev"]}],
-    }
-
-    assert mod._repo_channels_for("org/repo1") == ["#dev"]
-    assert mod._repo_channels_for("org/other") == []
-    assert mod._default_channels == []
-
-
-def test_event_sends_only_to_configured_repo_channels() -> None:
-    mod = GitHubModule()
-    mod.config = {
-        "repos": [
-            {"name": "org/repo1", "channels": ["#dev", "#ops"]},
-            {"name": "org/repo2", "channels": ["#release"]},
-        ],
-    }
-    mod._events = {"push"}
-    mod._emojis = False
-    api = FakeAPI()
-    mod.api = api
-
-    asyncio.run(
-        mod._on_github_event(
-            "push",
-            {
-                "ref": "refs/heads/main",
-                "repository": {"full_name": "org/repo1"},
-                "pusher": {"name": "alice"},
-                "commits": [
-                    {
-                        "id": "abcdef123456",
-                        "author": {"name": "alice"},
-                        "message": "fix bug",
-                    }
-                ],
-            },
-        )
-    )
-
-    sent_channels = [channel for channel, _ in api.sent]
-    assert sent_channels.count("#dev") == 2
-    assert sent_channels.count("#ops") == 2
-    assert set(sent_channels) == {"#dev", "#ops"}
-
-
-def test_workflow_run_failure_reports_to_configured_channels() -> None:
-    mod = GitHubModule()
-    mod.config = {
-        "repos": [
-            {"name": "org/repo1", "channels": ["#dev", "#ops"]},
-        ],
-    }
-    mod._events = {"workflow_run"}
-    mod._emojis = False
-    api = FakeAPI()
-    mod.api = api
-
-    asyncio.run(
-        mod._on_github_event(
-            "workflow_run",
-            {
-                "action": "completed",
-                "repository": {"full_name": "org/repo1"},
-                "workflow_run": {
-                    "name": "CI",
-                    "run_number": 7,
-                    "head_branch": "main",
-                    "conclusion": "failure",
-                    "html_url": "https://example/runs/7",
-                },
-            },
-        )
-    )
-
-    sent_channels = [channel for channel, _ in api.sent]
-    assert set(sent_channels) == {"#dev", "#ops"}
-    assert any("failed" in text for _, text in api.sent)
-
-
-def test_push_event_debug_logs_repo_and_channels() -> None:
-    mod = GitHubModule()
-    mod.config = {
-        "repos": [
-            {"name": "org/repo1", "channels": ["#dev", "#ops"]},
-        ],
-    }
-    mod._events = {"push"}
-    mod._emojis = False
-    api = FakeAPI()
-    mod.api = api
-
-    asyncio.run(
-        mod._on_github_event(
-            "push",
-            {
-                "ref": "refs/heads/main",
-                "repository": {"full_name": "org/repo1"},
-                "pusher": {"name": "alice"},
-                "commits": [
-                    {
-                        "id": "abcdef123456",
-                        "author": {"name": "alice"},
-                        "message": "fix bug",
-                    }
-                ],
-            },
-        )
-    )
-
-    log_lines = "\n".join(api.log.messages)
-    assert "Received supported GitHub event push" in log_lines
-    assert "org/repo1" in log_lines
-    assert "#dev" in log_lines and "#ops" in log_lines
-
-
-def test_repo_channels_match_case_insensitively() -> None:
-    mod = GitHubModule()
-    mod.config = {
-        "repos": [{"name": "Org/Repo1", "channels": ["#dev"]}],
-    }
-
-    assert mod._repo_channels_for("org/repo1") == ["#dev"]
-    assert mod._repo_channels_for("ORG/REPO1") == ["#dev"]
+    def unregister_channels(self) -> None:
+        self.registered = []
 
 
 def _push_payload(repo: str, ref: str) -> dict:
@@ -189,12 +55,213 @@ def _push_payload(repo: str, ref: str) -> dict:
     }
 
 
+def _issue_payload(repo: str) -> dict:
+    return {
+        "action": "opened",
+        "repository": {"full_name": repo},
+        "sender": {"login": "alice"},
+        "issue": {"number": 3, "title": "bug", "html_url": "https://example/3"},
+    }
+
+
+def _release_payload(repo: str) -> dict:
+    return {
+        "action": "published",
+        "repository": {"full_name": repo},
+        "sender": {"login": "alice"},
+        "release": {"tag_name": "v1.0", "name": "v1.0", "html_url": "https://example/r/1"},
+    }
+
+
 def _run_event(mod: GitHubModule, event: str, payload: dict) -> FakeAPI:
     api = FakeAPI()
     mod.api = api
     mod._emojis = False
     asyncio.run(mod._on_github_event(event, payload))
     return api
+
+
+def _sent_to(api: FakeAPI) -> set[str]:
+    return {ch for ch, _ in api.sent}
+
+
+def test_channels_receive_only_their_repos() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "channels": [
+            {"name": "#dev", "repos": ["org/repo1", "org/repo2"]},
+            {"name": "#ops", "repos": ["org/repo1"]},
+            {"name": "#release", "repos": ["org/repo2"]},
+        ],
+    }
+
+    assert mod._channels_for("push", "org/repo1") == ["#dev", "#ops"]
+    assert mod._channels_for("push", "org/repo2") == ["#dev", "#release"]
+    assert mod._channels_for("push", "org/other") == []
+    assert mod._channels_for("push", None) == []
+
+
+def test_channel_events_are_per_channel() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "channels": [
+            {"name": "#dev", "repos": ["org/repo1"], "events": ["push", "pull_request"]},
+            {"name": "#release", "repos": ["org/repo1"], "events": ["release"]},
+        ],
+    }
+
+    assert _sent_to(_run_event(mod, "push", _push_payload("org/repo1", "refs/heads/main"))) == {"#dev"}
+    assert _sent_to(_run_event(mod, "release", _release_payload("org/repo1"))) == {"#release"}
+    assert _run_event(mod, "issues", _issue_payload("org/repo1")).sent == []
+
+
+def test_channel_without_events_uses_global_default() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "events": ["issues"],
+        "channels": [
+            {"name": "#dev", "repos": ["org/repo1"]},
+            {"name": "#ops", "repos": ["org/repo1"], "events": ["push"]},
+        ],
+    }
+
+    assert mod._channels_for("issues", "org/repo1") == ["#dev"]
+    assert mod._channels_for("push", "org/repo1") == ["#ops"]
+
+
+def test_builtin_default_events_when_none_configured() -> None:
+    mod = GitHubModule()
+    mod.config = {"channels": [{"name": "#dev", "repos": ["org/repo1"]}]}
+
+    assert mod._enabled_events() == {"push", "issues", "pull_request"}
+
+
+def test_wildcard_repos_match_every_repo() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "channels": [
+            {"name": "#all", "repos": "*", "events": ["push"]},
+            {"name": "#one", "repos": "org/repo1", "events": ["push"]},
+        ],
+    }
+
+    assert mod._channels_for("push", "org/anything") == ["#all"]
+    assert mod._channels_for("push", "org/repo1") == ["#all", "#one"]
+
+
+def test_channel_with_no_repos_receives_nothing() -> None:
+    mod = GitHubModule()
+    mod.config = {"channels": [{"name": "#dev", "events": ["push"]}]}
+
+    assert mod._channels_for("push", "org/repo1") == []
+
+
+def test_enabled_events_is_union_of_channel_events() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "channels": [
+            {"name": "#dev", "repos": ["org/repo1"], "events": ["push"]},
+            {"name": "#release", "repos": ["org/repo1"], "events": ["release", "workflow_run"]},
+        ],
+    }
+
+    assert mod._enabled_events() == {"push", "release", "workflow_run"}
+
+
+def test_duplicate_channel_entries_send_once() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "channels": [
+            {"name": "#dev", "repos": ["org/repo1"], "events": ["push"]},
+            {"name": "#DEV", "repos": "*", "events": ["push", "issues"]},
+        ],
+    }
+
+    api = _run_event(mod, "push", _push_payload("org/repo1", "refs/heads/main"))
+    assert [ch for ch, _ in api.sent] == ["#dev"] * len(api.sent)
+    assert mod._channels_for("issues", "org/other") == ["#DEV"]
+    assert mod._configured_channels() == ["#dev"]
+
+
+def test_repo_names_match_case_insensitively() -> None:
+    mod = GitHubModule()
+    mod.config = {"channels": [{"name": "#dev", "repos": ["Org/Repo1"], "events": ["push"]}]}
+
+    assert mod._channels_for("push", "org/repo1") == ["#dev"]
+    assert mod._channels_for("push", "ORG/REPO1") == ["#dev"]
+
+
+def test_workflow_run_failure_reports_to_subscribed_channels() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "channels": [
+            {"name": "#dev", "repos": ["org/repo1"], "events": ["workflow_run"]},
+            {"name": "#ops", "repos": ["org/repo1"], "events": ["workflow_run"]},
+        ],
+    }
+
+    api = _run_event(
+        mod,
+        "workflow_run",
+        {
+            "action": "completed",
+            "repository": {"full_name": "org/repo1"},
+            "workflow_run": {
+                "name": "CI",
+                "run_number": 7,
+                "head_branch": "main",
+                "conclusion": "failure",
+                "html_url": "https://example/runs/7",
+            },
+        },
+    )
+
+    assert _sent_to(api) == {"#dev", "#ops"}
+    assert any("failed" in text for _, text in api.sent)
+
+
+def test_push_event_debug_logs_repo_and_channels() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "channels": [
+            {"name": "#dev", "repos": ["org/repo1"], "events": ["push"]},
+            {"name": "#ops", "repos": ["org/repo1"], "events": ["push"]},
+        ],
+    }
+
+    api = _run_event(mod, "push", _push_payload("org/repo1", "refs/heads/main"))
+
+    log_lines = "\n".join(api.log.messages)
+    assert "Received supported GitHub event push" in log_lines
+    assert "org/repo1" in log_lines
+    assert "#dev" in log_lines and "#ops" in log_lines
+
+
+def test_legacy_channel_config_is_ignored_with_warning() -> None:
+    mod = GitHubModule()
+    mod.config = {
+        "channel": "#default",
+        "repos": [{"name": "org/repo1", "channels": ["#dev"]}],
+    }
+    api = FakeAPI()
+    mod.api = api
+
+    asyncio.run(mod.reload_config(mod.config))
+
+    assert api.registered == []
+    assert mod._channels_for("push", "org/repo1") == []
+    assert any("no longer supported" in m for m in api.log.messages)
+
+
+def test_reload_config_registers_new_channels() -> None:
+    mod = GitHubModule()
+    api = FakeAPI()
+    mod.api = api
+
+    asyncio.run(mod.reload_config({"channels": [{"name": "#dev", "repos": "*"}, {"name": "#ops", "repos": "*"}]}))
+
+    assert api.registered == ["#dev", "#ops"]
+    assert not any("no longer supported" in m for m in api.log.messages)
 
 
 def test_event_branch_extraction() -> None:
@@ -209,7 +276,7 @@ def test_event_branch_extraction() -> None:
 
 def test_repo_without_branches_tracks_every_branch() -> None:
     mod = GitHubModule()
-    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"]}]}
+    mod.config = {"channels": [{"name": "#dev", "repos": ["org/repo1"], "events": ALL_EVENTS}]}
 
     assert mod._repo_branches_for("org/repo1") == []
     for ref in ("refs/heads/main", "refs/heads/feature/foo"):
@@ -220,7 +287,8 @@ def test_repo_without_branches_tracks_every_branch() -> None:
 def test_repo_branches_filter_push_events() -> None:
     mod = GitHubModule()
     mod.config = {
-        "repos": [{"name": "org/repo1", "channels": ["#dev"], "branches": ["main", "release/1.x"]}],
+        "channels": [{"name": "#dev", "repos": ["org/repo1"], "events": ALL_EVENTS}],
+        "repos": [{"name": "org/repo1", "branches": ["main", "release/1.x"]}],
     }
 
     assert mod._repo_branches_for("org/repo1") == ["main", "release/1.x"]
@@ -238,7 +306,10 @@ def test_repo_branches_filter_push_events() -> None:
 
 def test_repo_branches_single_string_shorthand() -> None:
     mod = GitHubModule()
-    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"], "branch": "main"}]}
+    mod.config = {
+        "channels": [{"name": "#dev", "repos": ["org/repo1"], "events": ALL_EVENTS}],
+        "repos": [{"name": "org/repo1", "branch": "main"}],
+    }
 
     assert mod._repo_branches_for("org/repo1") == ["main"]
     api = _run_event(mod, "push", _push_payload("org/repo1", "refs/heads/dev"))
@@ -247,7 +318,10 @@ def test_repo_branches_single_string_shorthand() -> None:
 
 def test_repo_branches_do_not_filter_tags_issues_or_releases() -> None:
     mod = GitHubModule()
-    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"], "branches": ["main"]}]}
+    mod.config = {
+        "channels": [{"name": "#dev", "repos": ["org/repo1"], "events": ALL_EVENTS}],
+        "repos": [{"name": "org/repo1", "branches": ["main"]}],
+    }
 
     tag_push = {
         "ref": "refs/tags/v1.0",
@@ -280,7 +354,10 @@ def test_repo_branches_do_not_filter_tags_issues_or_releases() -> None:
 
 def test_repo_branches_filter_pull_request_by_base_branch() -> None:
     mod = GitHubModule()
-    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"], "branches": ["main"]}]}
+    mod.config = {
+        "channels": [{"name": "#dev", "repos": ["org/repo1"], "events": ALL_EVENTS}],
+        "repos": [{"name": "org/repo1", "branches": ["main"]}],
+    }
 
     def pr(base: str) -> dict:
         return {
@@ -305,7 +382,10 @@ def test_repo_branches_filter_pull_request_by_base_branch() -> None:
 
 def test_repo_branches_filter_workflow_run_by_head_branch() -> None:
     mod = GitHubModule()
-    mod.config = {"repos": [{"name": "org/repo1", "channels": ["#dev"], "branches": ["main"]}]}
+    mod.config = {
+        "channels": [{"name": "#dev", "repos": ["org/repo1"], "events": ALL_EVENTS}],
+        "repos": [{"name": "org/repo1", "branches": ["main"]}],
+    }
 
     def run(branch: str) -> dict:
         return {
@@ -330,10 +410,11 @@ def test_repo_branches_filter_workflow_run_by_head_branch() -> None:
 def test_branch_filter_is_per_repo_and_case_insensitive_on_repo_name() -> None:
     mod = GitHubModule()
     mod.config = {
-        "repos": [
-            {"name": "Org/Repo1", "channels": ["#dev"], "branches": ["main"]},
-            {"name": "org/repo2", "channels": ["#ops"]},
+        "channels": [
+            {"name": "#dev", "repos": ["Org/Repo1"], "events": ALL_EVENTS},
+            {"name": "#ops", "repos": ["org/repo2"], "events": ALL_EVENTS},
         ],
+        "repos": [{"name": "Org/Repo1", "branches": ["main"]}],
     }
 
     api = _run_event(mod, "push", _push_payload("ORG/REPO1", "refs/heads/dev"))
@@ -375,7 +456,7 @@ def test_fake_webhook_handler_accepts_signed_push_event() -> None:
         seen["event"] = event
         seen["repo"] = received.get("repository", {}).get("full_name")
 
-    handler = make_handler(secret=secret, allowed_events={"push"}, on_event=on_event)
+    handler = make_handler(secret=secret, allowed_events=lambda: {"push"}, on_event=on_event)
     response = asyncio.run(
         handler(
             FakeRequest(
@@ -407,7 +488,7 @@ def test_invalid_json_logs_body_preview(monkeypatch) -> None:
     logger = CapturingLogger()
     monkeypatch.setattr(github_webhook, "log", logger)
 
-    handler = make_handler(secret=secret, allowed_events={"push"}, on_event=lambda *_args, **_kwargs: None)
+    handler = make_handler(secret=secret, allowed_events=lambda: {"push"}, on_event=lambda *_args, **_kwargs: None)
     response = asyncio.run(
         handler(
             FakeRequest(

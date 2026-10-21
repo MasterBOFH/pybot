@@ -88,12 +88,16 @@ deps when you turn a module on.
 Receives GitHub webhooks and reports to configured IRC channels.
 
 1. Set `modules.github.secret` in config
-2. Optionally set a default `channel` for repos not explicitly listed
-3. Use `repos:` to map repository names to channel lists, e.g. `owner/repo: ["#dev", "#github"]`
-   - Optionally add `branches:` per repo to only report that repo's listed branches. Leave it out (or empty) to track every branch. The filter applies to `push` (branch), `pull_request` (base/target branch) and `workflow_run` (head branch); issues, releases and tag pushes are not branch-scoped and always report.
+2. List the IRC channels to report to under `channels:`. Each entry has:
+   - `name`: the channel (the bot joins it automatically)
+   - `repos`: the repositories it follows, a list or a single string; `"*"` follows every repo. A channel without `repos` gets nothing. Repo names match case-insensitively.
+   - `events`: the event types it gets. Leave it out to use the module-level `events` list (defaults to `push`, `issues`, `pull_request`).
+3. Optionally list repos under `repos:` with `branches:` to only report that repo's listed branches. This applies to every channel. Leave it out (or empty) to track every branch. The filter applies to `push` (branch), `pull_request` (base/target branch) and `workflow_run` (head branch); issues, releases and tag pushes are not branch-scoped and always report.
 4. Point GitHub webhook at `http://<host>:8080/github` (or your `path`)
 5. Content type: `application/json`; secret must match
-6. Events: `push` (commits + tags), `release`, `issues`, `pull_request`, `workflow_run` (Actions run completed; configurable; enable the same events on the GitHub webhook)
+6. Events: `push` (commits + tags), `release`, `issues`, `pull_request`, `workflow_run` (Actions run completed). Enable every event any channel uses on the GitHub webhook as well; event types no channel subscribes to are ignored.
+
+The older `channel:` and `repos[].channels` keys are no longer read. The module logs a warning if it still finds them.
 
 Example:
 
@@ -103,13 +107,19 @@ modules:
     enabled: true
     secret: "..."
     path: /github
-    channel: "#dev"
+    events: [push, issues, pull_request]     # default for channels without events
+    channels:
+      - name: "#dev"
+        repos: ["owner/repo1", "owner/repo2"]
+        events: [push, pull_request, workflow_run]
+      - name: "#release"
+        repos: "owner/repo2"
+        events: [release]
+      - name: "#github"
+        repos: "*"                           # every repo, default events
     repos:
       - name: "owner/repo1"
-        channels: ["#dev", "#github"]
         branches: ["main", "release/1.x"]   # only these branches; omit to track all
-      - name: "owner/repo2"
-        channel: "#release"
 ```
 
 Signature: `X-Hub-Signature-256` (HMAC SHA-256).
