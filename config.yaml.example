@@ -127,11 +127,9 @@ modules:
       enabled: true
       path: /livekit/webhook
       verify: true            # JWT signature via api_secret
-    # Upstream problems (LiveKit unreachable / connection lost / restored).
-    # Joined automatically; not a $join room. Omit to only log them.
-    # debug_channel: "#medialink-ops"
     # Room name = IRC channel name for $join
     channels:
       - name: "#routing"
       # - name: "#dev"
-      #   debug: true          # also receive noisy track/debug lines
+      #   debug: true          # default false; also receive noisy track/debug lines
+      #                        # and LiveKit outage/recovery reports

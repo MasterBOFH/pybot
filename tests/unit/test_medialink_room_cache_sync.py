@@ -171,13 +171,13 @@ def test_unreachable_at_startup_is_reported() -> None:
     assert api.room_service is None
 
 
-def test_module_holds_issues_until_in_debug_channel() -> None:
+def test_module_holds_issues_until_in_debug_channels() -> None:
     import asyncio
 
     from pybot.modules.medialink.module import MedialinkModule
 
     mod = MedialinkModule()
-    mod._debug_channel = "#ops"
+    mod._channels = [("#room", False), ("#ops", True)]
     joined: set[str] = set()
     bot_api = Mock()
     bot_api.privmsg = AsyncMock()
@@ -194,5 +194,7 @@ def test_module_holds_issues_until_in_debug_channel() -> None:
 
     asyncio.run(run())
 
+    # Only debug: true channels get issue reports.
     bot_api.privmsg.assert_awaited_once_with("#ops", "⚠️ down")
-    assert not mod._pending_issues
+    assert not mod._pending_issues["#ops"]
+    assert "#room" not in mod._pending_issues
