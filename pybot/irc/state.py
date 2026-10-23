@@ -139,6 +139,19 @@ class StateJournal:
                 # keep user record for account journal briefly; drop if no channels
                 self.users.pop(key, None)
 
+    def remove_channel(self, name: str) -> None:
+        """Forget a channel we left, along with everyone's membership in it."""
+        ch_key = self.casefold(name)
+        ch = self.channels.pop(ch_key, None)
+        if not ch:
+            return
+        for key in ch.members:
+            user = self.users.get(key)
+            if user:
+                user.channels.discard(ch_key)
+                if not user.channels:
+                    self.users.pop(key, None)
+
     def rename_user(self, old_nick: str, new_nick: str) -> User | None:
         old_key = self.casefold(old_nick)
         user = self.users.pop(old_key, None)

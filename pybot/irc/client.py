@@ -545,6 +545,7 @@ class IRCClient:
 
         existing = {self.isupport.casefold(ch.name) for ch in self.state.channels.values()}
         if folded in existing:
+            log.debug("Ignoring INVITE to %s (already on it)", channel)
             return
 
         sender = {
@@ -767,7 +768,10 @@ class IRCClient:
             return
         channel = msg.params[0]
         reason = msg.params[1] if len(msg.params) > 1 else ""
-        self.state.remove_member(channel, nick)
+        if self.isupport.equal(nick, self.nick):
+            self.state.remove_channel(channel)
+        else:
+            self.state.remove_member(channel, nick)
         log.debug("State PART %s ← %s (%s)", nick, channel, reason)
         await self.emit("user_part", nick=nick, channel=channel, reason=reason)
 
@@ -805,7 +809,10 @@ class IRCClient:
             return
         channel, nick = msg.params[0], msg.params[1]
         reason = msg.params[2] if len(msg.params) > 2 else ""
-        self.state.remove_member(channel, nick)
+        if self.isupport.equal(nick, self.nick):
+            self.state.remove_channel(channel)
+        else:
+            self.state.remove_member(channel, nick)
         log.debug(
             "State KICK %s ← %s by %s (%s)",
             nick,

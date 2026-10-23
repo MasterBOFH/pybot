@@ -428,3 +428,30 @@ def test_reload_config_keeps_module_channels_and_syncs_after_modules(tmp_path: P
     bot.irc.part.assert_not_awaited()
     bot.irc.join.assert_awaited_once_with("#new", None)
     assert {name for name, _ in bot._configured_join_channels()} == {"#core", "#dev", "#new"}
+
+
+def test_admin_invite_after_being_kicked_rejoins(tmp_path: Path) -> None:
+    bot = _invite_bot(tmp_path)
+    for line in (
+        ":x!bot@h JOIN :#core",
+        ":alice!admin@host JOIN :#core",
+        ":alice!admin@host KICK #core x :bye",
+    ):
+        asyncio.run(bot.irc._dispatch(parse_message(line)))
+
+    asyncio.run(bot.irc._dispatch(parse_message(":alice!admin@host INVITE x :#core")))
+
+    bot.irc.join.assert_awaited_once_with("#core", None)
+
+
+def test_admin_invite_after_parting_rejoins(tmp_path: Path) -> None:
+    bot = _invite_bot(tmp_path)
+    for line in (
+        ":x!bot@h JOIN :#core",
+        ":x!bot@h PART #core :later",
+    ):
+        asyncio.run(bot.irc._dispatch(parse_message(line)))
+
+    asyncio.run(bot.irc._dispatch(parse_message(":alice!admin@host INVITE x :#core")))
+
+    bot.irc.join.assert_awaited_once_with("#core", None)
