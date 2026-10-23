@@ -97,7 +97,9 @@ class LiveKitAPI:
             await self.room_service.room.list_rooms(api.ListRoomsRequest())
             log.info("LiveKit connected (%s)", self.server_url)
         except Exception as exc:
-            self.room_service = None
+            # The client owns an aiohttp session; drop it properly or it leaks
+            # on every reconnect attempt while LiveKit is down.
+            await self.close()
             log.warning("LiveKit connection test failed; service unavailable: %s", exc)
             await self._mark_down(exc)
             return
@@ -255,7 +257,6 @@ class LiveKitAPI:
         try:
             rooms_response = await svc.room.list_rooms(api.ListRoomsRequest())
         except Exception as exc:
-            self.room_service = None
             await self.close()
             log.warning("LiveKit room poll failed; backend unavailable or dropped: %s", exc)
             await self._mark_down(exc)

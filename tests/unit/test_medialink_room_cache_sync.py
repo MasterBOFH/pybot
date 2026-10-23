@@ -81,15 +81,16 @@ def test_poll_rooms_handles_backend_unavailable_gracefully() -> None:
     api = _api()
     svc = Mock()
     svc.room.list_rooms = AsyncMock(side_effect=RuntimeError("backend unavailable"))
+    svc.aclose = AsyncMock()
     api.room_service = svc
 
-    with patch("pybot.modules.medialink.livekit_api.log.warning") as warning, patch.object(
-        api, "close", AsyncMock()
-    ) as close_mock, patch("pybot.modules.medialink.livekit_api.log.exception") as exception:
+    with patch("pybot.modules.medialink.livekit_api.log.warning") as warning, patch(
+        "pybot.modules.medialink.livekit_api.log.exception"
+    ) as exception:
         asyncio.run(api.poll_rooms())
 
     warning.assert_called_once()
-    close_mock.assert_awaited_once()
+    svc.aclose.assert_awaited_once()  # the dropped client's HTTP session is closed
     exception.assert_not_called()
     assert api.room_service is None
 
@@ -116,7 +117,7 @@ def test_outage_reported_once_then_recovery() -> None:
     import asyncio
 
     list_rooms = AsyncMock(return_value=Mock(rooms=[]))
-    _fake_livekit_api(list_rooms)
+    svc = _fake_livekit_api(list_rooms)
     issues: list[str] = []
     api = LiveKitAPI(
         api_key="k",
@@ -143,12 +144,14 @@ def test_outage_reported_once_then_recovery() -> None:
     assert "certificate has expired" in issues[0]
     assert issues[1].startswith("✅ LiveKit connection restored")
     assert api.healthy is True
+    # Every client that was dropped (1 poll failure + 2 failed reconnects) was closed.
+    assert svc.aclose.await_count == 3
 
 
 def test_unreachable_at_startup_is_reported() -> None:
     import asyncio
 
-    _fake_livekit_api(AsyncMock(side_effect=RuntimeError("x" * 1000)))
+    svc = _fake_livekit_api(AsyncMock(side_effect=RuntimeError("x" * 1000)))
     issues: list[str] = []
     api = LiveKitAPI(
         api_key="k",
@@ -164,6 +167,8 @@ def test_unreachable_at_startup_is_reported() -> None:
     assert issues[0].startswith("⚠️ Cannot connect to LiveKit")
     assert len(issues[0]) < 400
     assert api.healthy is False
+    svc.aclose.assert_awaited_once()
+    assert api.room_service is None
 
 
 def test_module_holds_issues_until_in_debug_channel() -> None:
