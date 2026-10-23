@@ -384,3 +384,47 @@ def test_connection_close_closes_writer_before_cancelling_reader() -> None:
     asyncio.run(conn.close())
 
     assert events == ["writer.close", "cancel"]
+
+
+def test_reload_config_keeps_module_channels_and_syncs_after_modules(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        dedent(
+            """\
+            irc:
+              nick: x
+              channels:
+                - '#core'
+            modules: {}
+            """
+        ),
+        encoding="utf-8",
+    )
+    bot = Bot(cfg)
+    bot.register_wanted_channels("module:github", ["#dev"])
+    bot.irc.registered = True
+    bot.irc.conn = type("Conn", (), {"connected": True})()
+    bot.irc.state.ensure_channel("#core")
+    bot.irc.state.ensure_channel("#dev")
+    bot.irc.join = AsyncMock()
+    bot.irc.part = AsyncMock()
+
+    # Add a core channel; the reload must join it and leave #dev alone.
+    cfg.write_text(
+        dedent(
+            """\
+            irc:
+              nick: x
+              channels:
+                - '#core'
+                - '#new'
+            modules: {}
+            """
+        ),
+        encoding="utf-8",
+    )
+    asyncio.run(bot.reload_config_and_modules())
+
+    bot.irc.part.assert_not_awaited()
+    bot.irc.join.assert_awaited_once_with("#new", None)
+    assert {name for name, _ in bot._configured_join_channels()} == {"#core", "#dev", "#new"}

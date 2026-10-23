@@ -92,7 +92,9 @@ class Bot:
         self.irc.set_channels_to_join(self._configured_join_channels())
 
     def _rebuild_channel_registry(self) -> None:
-        self._wanted_channels.clear()
+        # Only the core entries come from irc.channels; module registrations
+        # are left alone so a config reload doesn't drop (and PART) them.
+        self._unregister_wanted_channels("core")
         irc_cfg = self.config.get("irc") or {}
         for name, key in IRCClient._parse_channel_list(irc_cfg.get("channels") or []):
             self._register_wanted_channel("core", name, key=key)
@@ -256,6 +258,7 @@ class Bot:
             log.info("Module %s is disabled in config; not loading", name)
             return False
         await self.load_module(name, state=state)
+        await self.irc.sync_channels()
         return True
 
     async def reload_modules(self) -> None:
@@ -275,6 +278,7 @@ class Bot:
                     channels = instance._configured_channels()
                     if self.modules.get(name) is instance:
                         self.register_wanted_channels(f"module:{name}", channels)
+        await self.irc.sync_channels()
 
     async def reload_config_and_modules(self) -> None:
         log.info("Reloading config + modules (SIGHUP)")
@@ -289,7 +293,6 @@ class Bot:
             rate=flood.get("rate"),
         )
         self.irc.set_channels_to_join(self._configured_join_channels())
-        await self.irc.sync_channels()
         http_cfg = self.config.get("http") or {}
         need_http_restart = self.http.configure(
             http_cfg.get("host", "0.0.0.0"),
@@ -297,6 +300,7 @@ class Bot:
         )
         if need_http_restart:
             await self.http.restart()
+        # Syncs JOIN/PART once module channels are registered again.
         await self.reload_modules()
 
     async def reload_core(self) -> None:
