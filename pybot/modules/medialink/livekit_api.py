@@ -14,6 +14,9 @@ log = logging.getLogger("pybot.modules.medialink")
 
 AnnounceFn = Callable[[str], Awaitable[None] | None]
 
+# Upstream error text can be long (TLS chains, aiohttp reprs); keep IRC lines sane.
+_ISSUE_DETAIL_MAX = 300
+
 
 class LiveKitAPI:
     def __init__(
@@ -28,6 +31,7 @@ class LiveKitAPI:
         announce: AnnounceFn | None = None,
         announce_room: Callable[[str, str], Awaitable[None] | None] | None = None,
         room_allowed: Callable[[str], bool] | None = None,
+        report_issue: AnnounceFn | None = None,
     ) -> None:
         self.api_key = api_key
         self.api_secret = api_secret
@@ -37,6 +41,10 @@ class LiveKitAPI:
         self._announce = announce
         self._announce_room = announce_room
         self._room_allowed = room_allowed
+        self._report_issue = report_issue
+        # None until the first connection attempt, then True (up) / False (down).
+        self.healthy: bool | None = None
+        self._down_since: float | None = None
 
         ann = announcements or {}
         self.announcements_enabled = bool(ann.get("enabled", True))
@@ -91,6 +99,9 @@ class LiveKitAPI:
         except Exception as exc:
             self.room_service = None
             log.warning("LiveKit connection test failed; service unavailable: %s", exc)
+            await self._mark_down(exc)
+            return
+        await self._mark_up()
 
     async def close(self) -> None:
         if self.room_service is not None:
@@ -247,6 +258,7 @@ class LiveKitAPI:
             self.room_service = None
             await self.close()
             log.warning("LiveKit room poll failed; backend unavailable or dropped: %s", exc)
+            await self._mark_down(exc)
             return
 
         try:
@@ -342,6 +354,40 @@ class LiveKitAPI:
         result = self._announce(text)
         if hasattr(result, "__await__"):
             await result
+
+    async def _mark_down(self, exc: BaseException) -> None:
+        """Report LiveKit going (or starting) unavailable — once per outage."""
+        if self.healthy is False:
+            return
+        was_up = self.healthy is True
+        self.healthy = False
+        self._down_since = time.time()
+        detail = str(exc) or type(exc).__name__
+        if len(detail) > _ISSUE_DETAIL_MAX:
+            detail = detail[: _ISSUE_DETAIL_MAX - 1] + "…"
+        what = "Lost connection to" if was_up else "Cannot connect to"
+        await self._emit_issue(f"⚠️ {what} LiveKit ({self.server_url}): {detail}")
+
+    async def _mark_up(self) -> None:
+        if self.healthy is False and self._down_since is not None:
+            down_for = int(time.time() - self._down_since)
+            minutes, seconds = divmod(down_for, 60)
+            await self._emit_issue(
+                f"✅ LiveKit connection restored ({self.server_url}) "
+                f"after {minutes}m{seconds:02d}s"
+            )
+        self.healthy = True
+        self._down_since = None
+
+    async def _emit_issue(self, text: str) -> None:
+        if not self._report_issue:
+            return
+        try:
+            result = self._report_issue(text)
+            if hasattr(result, "__await__"):
+                await result
+        except Exception:
+            log.exception("Failed to report LiveKit issue")
 
     async def _emit_room(self, room_name: str, text: str) -> None:
         if not self._announce_room:

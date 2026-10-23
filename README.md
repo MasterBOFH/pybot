@@ -151,6 +151,12 @@ Room names match IRC channel names for `$join`. Optional per-channel `debug: tru
 for noisy track/debug lines (default `false`). The bot auto-joins enabled module
 channels so room announcements can work immediately.
 
+Set `modules.medialink.debug_channel` to get upstream problems reported on IRC:
+LiveKit being unreachable at startup, losing the connection (e.g. an expired TLS
+certificate), and the connection being restored. Each outage is reported once,
+not on every poll; reports raised before the bot has joined the channel are held
+and sent once it's in. The debug channel is auto-joined but isn't a `$join` room.
+
 Join URL shortening is configurable with `modules.medialink.shortener.mode`:
 `none` (default), `tinyurl` (public API), `isgd` (public API),
 or `local` (self-hosted redirect endpoint).

@@ -92,3 +92,102 @@ def test_poll_rooms_handles_backend_unavailable_gracefully() -> None:
     close_mock.assert_awaited_once()
     exception.assert_not_called()
     assert api.room_service is None
+
+
+def _fake_livekit_api(list_rooms: AsyncMock) -> Mock:
+    livekit_module = types.ModuleType("livekit")
+    livekit_api_module = types.ModuleType("livekit.api")
+
+    class FakeListRoomsRequest:
+        pass
+
+    svc = Mock()
+    svc.room.list_rooms = list_rooms
+    svc.aclose = AsyncMock()
+    livekit_api_module.ListRoomsRequest = FakeListRoomsRequest
+    livekit_api_module.LiveKitAPI = Mock(return_value=svc)
+    livekit_module.api = livekit_api_module
+    sys.modules["livekit"] = livekit_module
+    sys.modules["livekit.api"] = livekit_api_module
+    return svc
+
+
+def test_outage_reported_once_then_recovery() -> None:
+    import asyncio
+
+    list_rooms = AsyncMock(return_value=Mock(rooms=[]))
+    _fake_livekit_api(list_rooms)
+    issues: list[str] = []
+    api = LiveKitAPI(
+        api_key="k",
+        api_secret="s",
+        server_url="https://lk.example",
+        report_issue=issues.append,
+    )
+
+    async def run() -> None:
+        await api.connect()
+        assert issues == []  # healthy start is not an issue
+        list_rooms.side_effect = RuntimeError("certificate has expired")
+        await api.poll_rooms()  # drops the connection
+        await api.poll_rooms()  # reconnect attempt fails again
+        await api.poll_rooms()
+        list_rooms.side_effect = None
+        await api.poll_rooms()  # reconnects
+
+    with patch("pybot.modules.medialink.livekit_api.log.warning"):
+        asyncio.run(run())
+
+    assert len(issues) == 2
+    assert issues[0].startswith("⚠️ Lost connection to LiveKit (https://lk.example)")
+    assert "certificate has expired" in issues[0]
+    assert issues[1].startswith("✅ LiveKit connection restored")
+    assert api.healthy is True
+
+
+def test_unreachable_at_startup_is_reported() -> None:
+    import asyncio
+
+    _fake_livekit_api(AsyncMock(side_effect=RuntimeError("x" * 1000)))
+    issues: list[str] = []
+    api = LiveKitAPI(
+        api_key="k",
+        api_secret="s",
+        server_url="https://lk.example",
+        report_issue=issues.append,
+    )
+
+    with patch("pybot.modules.medialink.livekit_api.log.warning"):
+        asyncio.run(api.connect())
+
+    assert len(issues) == 1
+    assert issues[0].startswith("⚠️ Cannot connect to LiveKit")
+    assert len(issues[0]) < 400
+    assert api.healthy is False
+
+
+def test_module_holds_issues_until_in_debug_channel() -> None:
+    import asyncio
+
+    from pybot.modules.medialink.module import MedialinkModule
+
+    mod = MedialinkModule()
+    mod._debug_channel = "#ops"
+    joined: set[str] = set()
+    bot_api = Mock()
+    bot_api.privmsg = AsyncMock()
+    bot_api.get_channel = Mock(side_effect=lambda name: object() if name in joined else None)
+    bot_api.get_own_nick = Mock(return_value="bot")
+    bot_api.nicks_equal = Mock(side_effect=lambda a, b: a.lower() == b.lower())
+    mod.api = bot_api
+
+    async def run() -> None:
+        await mod._report_issue("⚠️ down")
+        bot_api.privmsg.assert_not_awaited()
+        joined.add("#ops")
+        await mod.on_join(nick="Bot", channel="#OPS")
+
+    asyncio.run(run())
+
+    bot_api.privmsg.assert_awaited_once_with("#ops", "⚠️ down")
+    assert not mod._pending_issues

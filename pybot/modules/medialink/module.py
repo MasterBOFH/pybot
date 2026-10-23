@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections import deque
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from typing import Any
 
@@ -27,6 +28,10 @@ class MedialinkModule(Module):
         # (channel name, debug announcements enabled)
         self._channels: list[tuple[str, bool]] = []
         self._room_channels: set[str] = set()  # casefolded names allowed for join
+        # Upstream (LiveKit) problems go here; not a room channel.
+        self._debug_channel: str | None = None
+        # Issue reports waiting for the bot to be in the debug channel.
+        self._pending_issues: deque[str] = deque(maxlen=10)
         self._cmd_prefix = "$"
         self._token_url = ""
         self._shortener_mode = "none"
@@ -93,6 +98,39 @@ class MedialinkModule(Module):
             return [(str(single), False)]
         return []
 
+    @staticmethod
+    def _parse_debug_channel(cfg: dict[str, Any]) -> str | None:
+        return str(cfg.get("debug_channel") or "").strip() or None
+
+    def _wanted_channels(self) -> list[str]:
+        channels = [channel for channel, _debug in self._channels]
+        if self._debug_channel:
+            channels.append(self._debug_channel)
+        return channels
+
+    async def _report_issue(self, text: str) -> None:
+        """Queue an upstream issue for the debug channel and try to deliver it."""
+        assert self.api is not None
+        if not self._debug_channel:
+            return
+        self._pending_issues.append(text)
+        await self._flush_issues()
+
+    async def _flush_issues(self) -> None:
+        # Held until we're actually in the channel: the first LiveKit check
+        # runs at module setup, usually before IRC registration.
+        assert self.api is not None
+        if not self._debug_channel or self.api.get_channel(self._debug_channel) is None:
+            return
+        while self._pending_issues:
+            try:
+                await self.api.privmsg(self._debug_channel, self._pending_issues[0])
+            except RuntimeError as exc:
+                if "Not connected" in str(exc):
+                    return
+                raise
+            self._pending_issues.popleft()
+
     def _room_allowed(self, room_name: str) -> bool:
         assert self.api is not None
         return self.api.casefold(room_name) in self._room_channels
@@ -139,9 +177,12 @@ class MedialinkModule(Module):
         await super().reload_config(config)
         self.config = config
         self._channels = self._parse_channels(config)
+        self._debug_channel = self._parse_debug_channel(config)
+        if not self._debug_channel:
+            self._pending_issues.clear()
         self._room_channels = {self.api.casefold(name) for name, _ in self._channels} if self.api else set()
         if self.api is not None:
-            self.api.register_channels([channel for channel, _debug in self._channels])
+            self.api.register_channels(self._wanted_channels())
 
     async def setup(self, api: BotAPI) -> None:
         await super().setup(api)
@@ -153,7 +194,8 @@ class MedialinkModule(Module):
             cfg.get("command_prefix") or admin.get("prefix") or "$"
         )
         self._channels = self._parse_channels(cfg)
-        self.api.register_channels([channel for channel, _debug in self._channels])
+        self._debug_channel = self._parse_debug_channel(cfg)
+        self.api.register_channels(self._wanted_channels())
         self._room_channels = {api.casefold(name) for name, _ in self._channels}
         self._token_url = cfg.get("token_url") or "https://example.com/?token="
         shortener = cfg.get("shortener") or {}
@@ -195,6 +237,7 @@ class MedialinkModule(Module):
             announce=self._announce_debug,
             announce_room=self._announce_room,
             room_allowed=self._room_allowed,
+            report_issue=self._report_issue,
         )
         if self._pending_state:
             self._apply_state(self._pending_state)
@@ -250,8 +293,9 @@ class MedialinkModule(Module):
             f"{ch}{'[debug]' if dbg else ''}" for ch, dbg in self._channels
         ) or "(no channels)"
         self.api.log.info(
-            "MediaLink ready → rooms/channels %s (prefix %s)",
+            "MediaLink ready → rooms/channels %s, issues → %s (prefix %s)",
             dest,
+            self._debug_channel or "(log only)",
             self._cmd_prefix,
         )
 
@@ -413,6 +457,7 @@ class MedialinkModule(Module):
     async def _poll_tick(self) -> None:
         if self.lk:
             await self.lk.poll_rooms()
+        await self._flush_issues()
 
     async def _cleanup_sessions(self) -> None:
         ttl = int(self.config.get("token_ttl_minutes") or 60)
@@ -616,6 +661,20 @@ class MedialinkModule(Module):
             await self.api.privmsg(
                 channel, f"🚪 {nick} has {reason} the chat and video room."
             )
+
+    @on("user_join")
+    async def on_join(
+        self, nick: str | None = None, channel: str | None = None, **_
+    ) -> None:
+        assert self.api is not None
+        if (
+            nick
+            and channel
+            and self._debug_channel
+            and self.api.nicks_equal(nick, self.api.get_own_nick())
+            and self.api.nicks_equal(channel, self._debug_channel)
+        ):
+            await self._flush_issues()
 
     @on("user_part")
     async def on_part(
