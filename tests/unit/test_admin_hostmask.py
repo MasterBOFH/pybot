@@ -212,7 +212,7 @@ def test_bot_api_uses_fresh_irc_client_after_reconnect(tmp_path: Path) -> None:
     fresh.privmsg.assert_awaited_once_with("#core", "hello")
 
 
-def test_invite_to_registered_channel_auto_joins(tmp_path: Path) -> None:
+def _invite_bot(tmp_path: Path) -> Bot:
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
         dedent(
@@ -221,19 +221,57 @@ def test_invite_to_registered_channel_auto_joins(tmp_path: Path) -> None:
               nick: x
               channels:
                 - '#core'
+                - name: '#keyed'
+                  key: sekrit
+              admin:
+                hosts:
+                  - '*!admin@host'
+                accounts:
+                  - opsacct
             """
         ),
         encoding="utf-8",
     )
     bot = Bot(cfg)
-    bot.register_wanted_channels("module:github", ["#dev"])
     bot.irc.registered = True
     bot.irc.conn = type("Conn", (), {"connected": True})()
     bot.irc.join = AsyncMock()
+    return bot
 
-    asyncio.run(bot.irc._dispatch(parse_message(":alice!u@h INVITE x :#dev")))
 
-    bot.irc.join.assert_awaited_once_with("#dev")
+def test_admin_invite_to_registered_channel_auto_joins(tmp_path: Path) -> None:
+    bot = _invite_bot(tmp_path)
+    bot.register_wanted_channels("module:github", ["#dev"])
+
+    asyncio.run(bot.irc._dispatch(parse_message(":alice!admin@host INVITE x :#dev")))
+
+    bot.irc.join.assert_awaited_once_with("#dev", None)
+
+
+def test_admin_invite_by_account_uses_configured_key(tmp_path: Path) -> None:
+    bot = _invite_bot(tmp_path)
+
+    asyncio.run(
+        bot.irc._dispatch(parse_message("@account=OpsAcct :bob!u@h INVITE x :#KEYED"))
+    )
+
+    bot.irc.join.assert_awaited_once_with("#KEYED", "sekrit")
+
+
+def test_non_admin_invite_is_ignored(tmp_path: Path) -> None:
+    bot = _invite_bot(tmp_path)
+
+    asyncio.run(bot.irc._dispatch(parse_message(":mallory!u@h INVITE x :#core")))
+
+    bot.irc.join.assert_not_awaited()
+
+
+def test_admin_invite_to_unconfigured_channel_is_ignored(tmp_path: Path) -> None:
+    bot = _invite_bot(tmp_path)
+
+    asyncio.run(bot.irc._dispatch(parse_message(":alice!admin@host INVITE x :#random")))
+
+    bot.irc.join.assert_not_awaited()
 
 
 def test_admin_commands_only_work_in_core_channels(tmp_path: Path) -> None:

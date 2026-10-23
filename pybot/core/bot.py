@@ -41,6 +41,7 @@ class Bot:
             emit=self._emit,
             timers=self.timers,
             raw=self.raw,
+            invite_allowed=self._is_admin,
         )
         self._rebuild_channel_registry()
         self.irc.set_channels_to_join(self._configured_join_channels())
@@ -376,6 +377,7 @@ class Bot:
                 emit=self._emit,
                 timers=self.timers,
                 raw=self.raw,
+                invite_allowed=self._is_admin,
             )
             # Preserve dynamic channel subscriptions across reconnects.
             self.irc.set_channels_to_join(self._configured_join_channels())

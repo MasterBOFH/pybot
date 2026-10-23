@@ -68,8 +68,11 @@ class IRCClient:
         emit: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
         timers: Any = None,
         raw: RawLogger | None = None,
+        invite_allowed: Callable[[dict[str, Any]], bool] | None = None,
     ) -> None:
         self.config = config
+        # Decides whether an INVITE sender may make us join; None ⇒ nobody.
+        self._invite_allowed = invite_allowed
         flood_cfg = config.get("flood") or {}
         self.flood = TokenBucket(
             burst=float(flood_cfg.get("burst", 5)),
@@ -521,7 +524,7 @@ class IRCClient:
         )
 
     async def _handle_invite(self, msg: Message) -> None:
-        """Auto-join configured channels when invited."""
+        """Rejoin a configured channel we're not on when an admin invites us."""
         if not self.registered or not self.conn.connected:
             return
         if len(msg.params) < 2:
@@ -531,20 +534,37 @@ class IRCClient:
         if not self.isupport.equal(invited_nick, self.nick):
             return
 
-        allowed = {
-            self.isupport.casefold(name)
-            for name, _key in self._channels_to_join
+        configured = {
+            self.isupport.casefold(name): key
+            for name, key in self._channels_to_join
         }
-        if self.isupport.casefold(channel) not in allowed:
+        folded = self.isupport.casefold(channel)
+        if folded not in configured:
             log.debug("Ignoring INVITE to unconfigured channel %s", channel)
             return
 
         existing = {self.isupport.casefold(ch.name) for ch in self.state.channels.values()}
-        if self.isupport.casefold(channel) in existing:
+        if folded in existing:
             return
 
-        log.info("Auto-join invited channel %s", channel)
-        await self.join(channel)
+        sender = {
+            "nick": msg.source_nick or "",
+            "user": msg.prefix.user if msg.prefix else None,
+            "host": msg.prefix.host if msg.prefix else None,
+            "account": msg.tags.get("account"),
+        }
+        if self._invite_allowed is None or not self._invite_allowed(sender):
+            log.info(
+                "Ignoring INVITE to %s from non-admin %s!%s@%s",
+                channel,
+                sender["nick"],
+                sender["user"],
+                sender["host"],
+            )
+            return
+
+        log.info("Auto-join invited channel %s (invited by %s)", channel, sender["nick"])
+        await self.join(channel, configured[folded])
 
     async def _handle_nick_unavailable(self, msg: Message) -> None:
         """433/432/437 — try altnick, then nick-, nick--, …"""

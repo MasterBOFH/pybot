@@ -232,3 +232,5 @@ Harness layout:
 ## Admin note
 
 Admin commands are only accepted from listed hostmasks (`nick!user@host` with `*`/`?`) or services accounts (when known via SASL/WHOX/caps), and must be sent either in a core `irc.channels` admin channel or as a private message to the bot.
+
+If the bot is not on a channel it is configured for (core `irc.channels` or an enabled module's channels) — e.g. its JOIN failed or it was kicked — an admin can `/invite` it and it will join (using the configured key). Invites from non-admins, or to channels it is not configured for, are ignored.
