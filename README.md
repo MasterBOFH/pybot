@@ -137,6 +137,19 @@ Announcements go to each entry under `channels:`; the bot auto-joins those
 channels when the module is enabled. Set `debug: true` on a channel to also
 receive noisy state lines (default `false`).
 
+### imdb
+
+`~imdb <title> [year]` or `~imdb tt0111161` looks a title up on IMDb (via the
+[OMDb API](https://www.omdbapi.com/); free key, 1,000 requests/day). No extra
+packages needed.
+
+Configure under `modules.imdb` (`api_key`, `channels`). The command works in
+any channel the bot is on and in PM. In each listed channel the bot also posts a
+one-line summary when someone pastes an `imdb.com/title/…` link; set
+`previews: false` on a channel to turn that off. Results (including misses) are
+cached for `cache_minutes` and survive hot reloads; `cooldown_seconds` throttles
+each nick.
+
 ### medialink
 
 LiveKit video rooms: `$join` / `$rooms` / `$createroom` / `$deleteroom`, webhooks, periodic announcements.

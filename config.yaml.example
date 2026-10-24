@@ -133,3 +133,19 @@ modules:
       # - name: "#dev"
       #   debug: true          # default false; also receive noisy track/debug lines
       #                        # and LiveKit outage/recovery reports
+
+  imdb:
+    enabled: false
+    api_key: ""               # free OMDb key: https://www.omdbapi.com/apikey.aspx
+    # ~imdb <title> [year] | <tt-id> works in any channel the bot is on and in PM.
+    # Channels listed here are auto-joined; previews: false turns off the
+    # one-line summary posted when someone pastes an imdb.com/title link.
+    channels:
+      - name: "#movies"
+      # - name: "#dev"
+      #   previews: false
+    # command_prefix: "~"     # defaults to irc.admin.prefix
+    plot: false               # add a short plot line to ~imdb replies
+    cooldown_seconds: 5       # per nick, for commands and previews
+    cache_minutes: 1440       # OMDb free tier allows 1,000 requests/day
+    timeout_seconds: 5
