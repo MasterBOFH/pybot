@@ -66,7 +66,7 @@ def _issue_payload(repo: str) -> dict:
 
 def _release_payload(repo: str) -> dict:
     return {
-        "action": "published",
+        "action": "released",
         "repository": {"full_name": repo},
         "sender": {"login": "alice"},
         "release": {"tag_name": "v1.0", "name": "v1.0", "html_url": "https://example/r/1"},
@@ -343,7 +343,7 @@ def test_repo_branches_do_not_filter_tags_issues_or_releases() -> None:
     assert {ch for ch, _ in api.sent} == {"#dev"}
 
     release = {
-        "action": "published",
+        "action": "released",
         "repository": {"full_name": "org/repo1"},
         "sender": {"login": "alice"},
         "release": {"tag_name": "v1.0", "name": "v1.0", "html_url": "https://example/r/1"},

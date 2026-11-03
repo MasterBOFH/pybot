@@ -115,13 +115,16 @@ def _format_tag_push(payload: dict[str, Any], *, emojis: bool = True) -> list[st
 
 
 def format_release(payload: dict[str, Any], *, emojis: bool = True) -> list[str]:
-    """GitHub Release published/edited/deleted (distinct from a bare tag push)."""
+    """GitHub Release published/edited/deleted (distinct from a bare tag push).
+
+    Publishing one release fires several deliveries (``created``, ``published``
+    and ``released``/``prereleased``). Only ``released`` and ``prereleased`` are
+    announced, so each publish yields one message. ``released`` also fires
+    when an existing prerelease is promoted to a full release.
+    """
     action = payload.get("action", "?")
-    interesting = {"published", "released", "prereleased", "created", "edited", "deleted"}
+    interesting = {"released", "prereleased", "edited", "deleted"}
     if action not in interesting:
-        return []
-    # "created" for draft releases is noisy; only announce when published-ish
-    if action == "created" and (payload.get("release") or {}).get("draft"):
         return []
 
     release = payload.get("release") or {}
@@ -130,10 +133,9 @@ def format_release(payload: dict[str, Any], *, emojis: bool = True) -> list[str]
     tag = release.get("tag_name") or "?"
     name = _truncate(release.get("name") or tag, 100)
     url = release.get("html_url") or ""
-    prerelease = bool(release.get("prerelease"))
 
-    if action == "published" or action == "released":
-        verb = "published prerelease" if prerelease else "published release"
+    if action == "released":
+        verb = "published release"
         icon = "🚀"
     elif action == "prereleased":
         verb = "published prerelease"

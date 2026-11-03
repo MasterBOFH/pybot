@@ -70,7 +70,7 @@ def test_format_tag_push() -> None:
 def test_format_release() -> None:
     lines = format_release(
         {
-            "action": "published",
+            "action": "released",
             "sender": {"login": "MrIron-no"},
             "repository": {"full_name": "MasterBOFH/GoBNC"},
             "release": {
@@ -85,6 +85,27 @@ def test_format_release() -> None:
     assert "published release" in lines[0]
     assert "v0.1.1" in lines[0]
     assert "🚀" in lines[0]
+
+
+def _release_with(action: str, *, prerelease: bool) -> dict:
+    return {
+        "action": action,
+        "sender": {"login": "alice"},
+        "repository": {"full_name": "org/repo"},
+        "release": {"tag_name": "v1", "name": "v1", "draft": False, "prerelease": prerelease},
+    }
+
+
+def test_format_release_announces_each_publish_once() -> None:
+    # GitHub sends created + published + released for a single full release.
+    full = [format_release(_release_with(a, prerelease=False)) for a in ("created", "published", "released")]
+    assert [bool(lines) for lines in full] == [False, False, True]
+    assert "published release" in full[2][0]
+
+    # ...and created + published + prereleased for a prerelease.
+    pre = [format_release(_release_with(a, prerelease=True)) for a in ("created", "published", "prereleased")]
+    assert [bool(lines) for lines in pre] == [False, False, True]
+    assert "published prerelease" in pre[2][0]
 
 
 def test_format_issue_and_pr() -> None:
